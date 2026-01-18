@@ -1,0 +1,484 @@
+"""
+股票工具模块
+
+处理股票数据、持仓、价格、图表生成等数据库操作
+"""
+
+import json
+import sqlite3
+import asyncio
+import random
+import time
+import io
+from datetime import datetime, timedelta
+from typing import Optional, Dict, List, Any
+
+# Plotly 图表库
+import plotly.graph_objects as go
+import plotly.io as pio
+
+
+# 历史数据保留时长
+HISTORY_DURATION_HOURS = 24
+
+# 股票定义 (名称: 初始价格)
+STOCKS = {
+    "萝莉股": 50.0,
+    "猫娘股": 60.0,
+    "魔法少女股": 70.0,
+    "梦月股": 250.0,
+    "梦馨股": 100.0,
+    "高达股": 40.0,
+    "雾月股": 120.0,
+    "傲娇股": 60.0,
+    "病娇股": 30.0,
+    "梦灵股": 120.0,
+    "铃音股": 110.0,
+    "音祈股": 500.0,
+    "梦铃股": 250.0,
+    "姐妹股": 250.0,
+    "橘馨股": 250.0,
+    "白芷股": 250.0,
+    "雾织股": 250.0,
+    "筑梦股": 250.0,
+    "摇篮股": 250.0,
+    "筑梦摇篮股": 500.0,
+}
+
+# 市场事件定义
+MARKET_EVENTS = {
+    "利好": {
+        "templates": [
+            "{stock}获得新的市场投资！",
+            "{stock}获得异次元政府补贴！",
+            "{stock}季度财报超预期！"
+        ],
+        "scope": "single",
+        "effect": lambda price: price * random.uniform(1.10, 1.20)
+    },
+    "利空": {
+        "templates": [
+            "{stock}产品力下降！",
+            "{stock}产品发现严重缺陷！",
+            "{stock}高管突然离职！"
+        ],
+        "scope": "single",
+        "effect": lambda price: price * random.uniform(0.82, 0.90)
+    },
+    "大盘上涨": {
+        "templates": [
+            "鹰酱宣布降息，市场普涨！",
+            "异次元经济复苏，投资者信心增强！",
+            "魔法少女在战争中大捷，领涨大盘！"
+        ],
+        "scope": "all",
+        "effect": lambda price: price * random.uniform(1.10, 1.15)
+    },
+    "大盘下跌": {
+        "templates": [
+            "异次元国际局势紧张，市场恐慌！",
+            "经济数据不及预期，市场普跌！",
+            "机构投资者大规模抛售！"
+        ],
+        "scope": "all",
+        "effect": lambda price: price * random.uniform(0.87, 0.90)
+    },
+    "暴涨": {
+        "templates": [
+            "{stock}成为市场新宠，资金疯狂涌入！",
+            "{stock}发现新资源，价值重估！"
+        ],
+        "scope": "single",
+        "effect": lambda price: price * random.uniform(1.25, 1.40)
+    },
+    "暴跌": {
+        "templates": [
+            "{stock}被曝财务造假！",
+            "{stock}主要产品被禁售！"
+        ],
+        "scope": "single",
+        "effect": lambda price: price * random.uniform(0.63, 0.75)
+    }
+}
+
+MANUAL_EVENT_TYPES = {
+    "利好": "单股上涨",
+    "利空": "单股下跌",
+    "暴涨": "单股暴涨",
+    "暴跌": "单股暴跌",
+    "大盘上涨": "全局上涨",
+    "大盘下跌": "全局下跌"
+}
+
+# 数据库路径
+_db_path: Optional[str] = None
+_db_initialized = False
+
+
+def set_db_path(path: str):
+    """设置数据库路径"""
+    global _db_path, _db_initialized
+    _db_path = path
+    _db_initialized = False
+
+
+def _get_connection() -> sqlite3.Connection:
+    """获取数据库连接"""
+    if _db_path is None:
+        raise RuntimeError("数据库路径未设置")
+    conn = sqlite3.connect(_db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_stock_database():
+    """初始化股票数据库"""
+    global _db_initialized
+    if _db_initialized:
+        return
+    
+    conn = _get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stock_data (
+            stock_name TEXT PRIMARY KEY,
+            initial_price REAL NOT NULL,
+            history_data TEXT NOT NULL,
+            events_data TEXT NOT NULL,
+            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_portfolios (
+            uid INTEGER PRIMARY KEY,
+            portfolio_data TEXT NOT NULL,
+            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    _db_initialized = True
+
+
+async def get_stock_data() -> Dict[str, dict]:
+    """获取所有股票数据"""
+    init_stock_database()
+    
+    def _query():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT stock_name, initial_price, history_data, events_data FROM stock_data')
+        results = cursor.fetchall()
+        conn.close()
+        
+        stock_data = {}
+        for row in results:
+            stock_data[row['stock_name']] = {
+                "initial_price": row['initial_price'],
+                "history": json.loads(row['history_data']),
+                "events": json.loads(row['events_data'])
+            }
+        return stock_data
+    
+    loop = asyncio.get_event_loop()
+    stock_data = await loop.run_in_executor(None, _query)
+    
+    # 检查缺失的股票
+    missing = set(STOCKS.keys()) - set(stock_data.keys())
+    if missing:
+        for stock_name in missing:
+            stock_data[stock_name] = {
+                "initial_price": STOCKS[stock_name],
+                "history": [],
+                "events": []
+            }
+        await save_stock_data(stock_data)
+    
+    return stock_data
+
+
+async def save_stock_data(data: Dict[str, dict]):
+    """保存所有股票数据"""
+    init_stock_database()
+    
+    def _save():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        for stock_name, stock_info in data.items():
+            initial_price = stock_info.get('initial_price', STOCKS.get(stock_name, 50.0))
+            history_data = json.dumps(stock_info.get('history', []))
+            events_data = json.dumps(stock_info.get('events', []))
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO stock_data (stock_name, initial_price, history_data, events_data)
+                VALUES (?, ?, ?, ?)
+            ''', (stock_name, initial_price, history_data, events_data))
+        
+        conn.commit()
+        conn.close()
+    
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _save)
+
+
+async def get_user_portfolios() -> Dict[int, dict]:
+    """获取所有用户持仓"""
+    init_stock_database()
+    
+    def _query():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT uid, portfolio_data FROM user_portfolios')
+        results = cursor.fetchall()
+        conn.close()
+        
+        portfolios = {}
+        for row in results:
+            portfolios[row['uid']] = json.loads(row['portfolio_data'])
+        return portfolios
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _query)
+
+
+async def save_user_portfolios(data: Dict[int, dict]):
+    """保存所有用户持仓"""
+    init_stock_database()
+    
+    def _save():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        for uid, portfolio in data.items():
+            cursor.execute('''
+                INSERT OR REPLACE INTO user_portfolios (uid, portfolio_data)
+                VALUES (?, ?)
+            ''', (uid, json.dumps(portfolio)))
+        
+        conn.commit()
+        conn.close()
+    
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _save)
+
+
+async def get_user_portfolio(user_id: int) -> dict:
+    """获取单个用户的持仓"""
+    from nonebot import logger
+    portfolios = await get_user_portfolios()
+    result = portfolios.get(user_id, {})
+    return result
+
+
+async def update_user_portfolio(user_id: int, stock_name: str, change_amount: int) -> bool:
+    """更新用户持仓 (正数买入，负数卖出)"""
+    from nonebot import logger
+    
+    logger.info(f"[chaogu] update_user_portfolio called: user_id={user_id}, stock={stock_name}, amount={change_amount}")
+    logger.info(f"[chaogu] _db_path = {_db_path}, _db_initialized = {_db_initialized}")
+    
+    init_stock_database()
+    
+    # 捕获外部变量到本地，确保闭包正确
+    _user_id = user_id
+    _stock_name = stock_name
+    _change_amount = change_amount
+    
+    def _update():
+        try:
+            conn = _get_connection()
+            cursor = conn.cursor()
+            
+            logger.info(f"[chaogu] Querying portfolio for uid={_user_id}")
+            cursor.execute('SELECT portfolio_data FROM user_portfolios WHERE uid = ?', (_user_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                portfolio = json.loads(result['portfolio_data'])
+                logger.info(f"[chaogu] Found existing portfolio: {portfolio}")
+            else:
+                portfolio = {}
+                logger.info(f"[chaogu] No existing portfolio, creating new one")
+            
+            current = portfolio.get(_stock_name, 0)
+            new_amount = current + _change_amount
+            
+            logger.info(f"[chaogu] Current holding: {current}, new amount: {new_amount}")
+            
+            if new_amount < 0:
+                conn.close()
+                logger.warning(f"[chaogu] new_amount < 0, returning False")
+                return False
+            
+            if new_amount == 0:
+                if _stock_name in portfolio:
+                    del portfolio[_stock_name]
+            else:
+                portfolio[_stock_name] = new_amount
+            
+            logger.info(f"[chaogu] Updated portfolio: {portfolio}")
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO user_portfolios (uid, portfolio_data)
+                VALUES (?, ?)
+            ''', (_user_id, json.dumps(portfolio)))
+            
+            conn.commit()
+            logger.info(f"[chaogu] Portfolio saved successfully for uid={_user_id}")
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"[chaogu] Error in _update: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _update)
+    logger.info(f"[chaogu] update_user_portfolio returning: {result}")
+    return result
+
+
+async def get_current_stock_price(stock_name: str, stock_data: dict = None) -> Optional[float]:
+    """获取指定股票的当前价格"""
+    if stock_data is None:
+        stock_data = await get_stock_data()
+    
+    if stock_name not in stock_data or not stock_data[stock_name]["history"]:
+        return stock_data.get(stock_name, {}).get("initial_price")
+    
+    return stock_data[stock_name]["history"][-1][1]
+
+
+async def get_stock_price_history(stock_name: str, stock_data: dict = None) -> List[tuple]:
+    """获取指定股票过去24小时的价格历史"""
+    if stock_data is None:
+        stock_data = await get_stock_data()
+    
+    if stock_name not in stock_data:
+        return []
+    
+    cutoff_time = time.time() - HISTORY_DURATION_HOURS * 3600
+    history = stock_data[stock_name].get("history", [])
+    
+    return [(ts, price) for ts, price in history if ts >= cutoff_time]
+
+
+def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict = None) -> Optional[io.BytesIO]:
+    """
+    使用 Plotly 生成股票历史价格图表的 PNG 图片。
+    此函数经过内存管理优化，应在线程池中运行。
+    
+    Args:
+        stock_name: 股票名称
+        history: 价格历史列表 [(timestamp, price), ...]
+        stock_data: 股票数据字典，用于获取事件信息
+    
+    Returns:
+        包含PNG图片的BytesIO对象，失败返回None
+    """
+    if not history:
+        return None
+
+    fig = None
+    timestamps = prices = dates = img_bytes = buf = None
+
+    try:
+        timestamps, prices = zip(*history)
+        dates = [datetime.fromtimestamp(ts) for ts in timestamps]
+
+        # 计算时间范围（过去24小时，并延长）
+        now = datetime.now()
+        start_time = now - timedelta(hours=HISTORY_DURATION_HOURS)
+        end_time = now + timedelta(hours=3)
+
+        # 创建 Plotly Figure
+        fig = go.Figure()
+
+        # 添加价格折线图
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=prices,
+            mode='lines+markers',
+            marker=dict(size=4),
+            line=dict(shape='linear'),
+            name='价格'
+        ))
+
+        # 如果有事件，在图表上标记
+        if stock_data and stock_name in stock_data and "events" in stock_data[stock_name]:
+            for event in stock_data[stock_name]["events"]:
+                event_time = datetime.fromtimestamp(event["time"])
+                # 只显示指定时间范围内的事件
+                if event_time >= start_time:
+                    fig.add_vline(
+                        x=event_time,
+                        line_width=1,
+                        line_dash="dash",
+                        line_color="orange",
+                        opacity=0.7
+                    )
+                    fig.add_annotation(
+                        x=event_time,
+                        y=event["old_price"],
+                        text=event["type"],
+                        showarrow=True,
+                        arrowhead=1,
+                        ax=0,
+                        ay=-40
+                    )
+
+        current_price = history[-1][1]
+        initial_price = STOCKS.get(stock_name, 0)
+
+        # 更新图表布局
+        fig.update_layout(
+            title=f'{stock_name} 过去{HISTORY_DURATION_HOURS}小时价格走势 (初始价格: {initial_price:.2f}金币)',
+            xaxis_title='时间',
+            yaxis_title='价格 (金币)',
+            xaxis=dict(
+                tickformat='%H:%M',
+                range=[start_time, end_time]
+            ),
+            hovermode='x unified',
+            template='plotly_white',
+            margin=dict(l=50, r=50, t=80, b=50)
+        )
+        
+        # 添加当前价格标注
+        fig.add_annotation(
+            x=dates[-1],
+            y=current_price,
+            xref="x",
+            yref="y",
+            text=f'当前: {current_price:.2f}',
+            showarrow=True,
+            arrowhead=1,
+            ax=30,
+            ay=-30,
+            xanchor='left'
+        )
+
+        # 渲染图片
+        img_bytes = pio.to_image(fig, format='png', scale=2)
+        buf = io.BytesIO(img_bytes)
+        buf.seek(0)
+        return buf
+
+    except Exception as e:
+        print(f"Error generating Plotly chart image for {stock_name}: {e}")
+        return None
+    finally:
+        if fig:
+            # 清空Figure对象内部数据，帮助GC回收
+            fig.data = []
+            fig.layout = {}
+            fig.frames = []
+            del fig
+        
+        del timestamps, prices, dates, img_bytes
+

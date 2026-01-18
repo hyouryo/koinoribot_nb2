@@ -1,0 +1,720 @@
+"""
+钓鱼插件 - fishing
+
+完整迁移自旧版 koinoribot
+功能：钓鱼、多连钓鱼、卖鱼、放生、漂流瓶
+弃用功能：捉萝莉、系统红包
+"""
+
+import random
+import datetime
+import time
+
+from nonebot import on_fullmatch, on_startswith, get_driver
+from nonebot.plugin import PluginMetadata
+from nonebot.adapters import Event, Bot
+from nonebot import logger
+
+from ... import event_adapter
+from ... import money
+from ...koinori_config import config
+from ...utils import FreqLimiter
+
+# 导入重构后的模块
+from .util import DatabaseManager, CooldownManager
+from .getfish import FishingManager, FISH_LIST, FISH_PRICE, PROBABILITY, PROBABILITY_2
+from .getbottle import BottleManager
+from .serif import NO_FISH_SERIF, GET_FISH_SERIF, COOL_TIME_SERIF
+
+__plugin_meta__ = PluginMetadata(
+    name="fishing",
+    description="钓鱼系统 - 完整版",
+    usage="钓鱼 / 十连钓鱼 / 百连钓鱼 / 卖鱼 等",
+)
+
+# ===== 频率限制器 =====
+freq = FreqLimiter(config.cool_time)
+bait_freq = FreqLimiter(10)
+throw_freq = FreqLimiter(config.throw_cool_time)
+get_freq = FreqLimiter(config.salvage_cool_time)
+comm_freq = FreqLimiter(config.comment_cool_time)
+
+# 通用冷却管理器
+general_cooldown = CooldownManager(config.fish_cd)
+
+
+# ===== 命令处理器 =====
+
+# ----- 钓鱼帮助 -----
+fish_help_cmd = on_fullmatch(("钓鱼帮助", "#钓鱼帮助", "/钓鱼帮助"), priority=5, block=True)
+
+# 钓鱼帮助内容（迁移自old_bot完整版）
+help_1 = '''
+转账功能：
+转账 QQ号 金币数量
+示例：转账 123456 100
+低保功能（仅限金币＜5000且没有私藏鱼饵和鱼时）：
+直接发送 领低保
+钓鱼功能：
+1.#钓鱼帮助
+2.#买鱼饵 数量（例：#买鱼饵 5）
+3.钓鱼
+4.十连钓鱼（95折优惠）、
+5.百连钓鱼（9折优惠）
+6.千连钓鱼/万连钓鱼/十万连钓鱼（仅用作调试）
+7..#出售 鱼emoji 数量（例：#出售 🐟 2）
+8.出售小鱼、一键出售
+9.#放生 鱼emoji 数量（例：#放生 🐟 2）
+10.#背包
+11.钓鱼概率 （获取概率公示）
+----------
+鱼emoji如：🐟，🦐，🦀，🐡，🐠，🦈
+数量可选，不填则默认为1
+出售可获得金币，放生可获得等价值的水心碎片
+每75个水心碎片会自动合成为水之心
+'''
+
+help_2 = '''
+漂流瓶功能：
+1.#合成漂流瓶+数量（例：#合成漂流瓶 2）
+2.#买漂流瓶+数量（例：#买漂流瓶 2）
+3.#扔漂流瓶+内容（例：#扔漂流瓶 你好）
+4.#捡漂流瓶
+5.#漂流瓶数量
+6.#回复 漂流瓶ID 内容（例：#回复114514 你好）
+7.#删除回复
+----------
+数量可选，不填则默认为1
+合成漂流瓶需要2个水之心
+买漂流瓶需要225枚金币
+捡漂流瓶需要一个水之心
+回复他人的漂流瓶需要20金币
+'''
+
+@fish_help_cmd.handle()
+async def handle_fish_help(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        
+        # 构建转发消息链
+        chain = []
+        await event_adapter.chain_reply(uevent, chain, help_1)
+        await event_adapter.chain_reply(uevent, chain, help_2)
+        
+        # 发送转发消息
+        await event_adapter.send_group_forward_msg(uevent, chain)
+    except Exception as e:
+        logger.error(f"钓鱼帮助失败: {e}")
+
+
+# ----- 概率公示 -----
+prob_cmd = on_fullmatch(("概率公示", "#概率公示", "/概率公示"), priority=5, block=True)
+
+@prob_cmd.handle()
+async def handle_prob(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        
+        air_force_prob = PROBABILITY[0]
+        total_prob = sum(PROBABILITY)
+        air_force_percentage = (air_force_prob / total_prob) * 100
+        
+        msg = f"【钓鱼概率公示】\n\n空军概率：{air_force_percentage:.2f}%\n\n钓到鱼后各鱼种概率：\n"
+        
+        fish_total = sum(PROBABILITY_2)
+        for fish, prob in zip(FISH_LIST, PROBABILITY_2):
+            percentage = (prob / fish_total) * 100
+            msg += f"{fish}: {percentage:.2f}%\n"
+        
+        await event_adapter.send_message(uevent, msg.strip())
+    except Exception as e:
+        logger.error(f"概率公示失败: {e}")
+
+
+# ----- 单抽钓鱼 -----
+single_fish_cmd = on_fullmatch(("钓鱼", "#钓鱼", "/钓鱼"), priority=5, block=True)
+
+@single_fish_cmd.handle()
+async def handle_single_fish(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        # 冷却检测
+        if not freq.check(uid):
+            await event_adapter.send_message(uevent, random.choice(COOL_TIME_SERIF) + f'({int(freq.left_time(uid))}s)')
+            return
+        
+        user_info = await FishingManager.get_user_info(uid)
+        user_gold = money.get_user_money(uid, 'gold') or 0
+        bait_cost = config.bait_price * config.bait_num
+        
+        auto_buy = False
+        # 检查鱼饵
+        if user_info['fish'].get('🍙', 0) < config.bait_num:
+            if user_gold >= bait_cost:
+                money.reduce_user_money(uid, 'gold', bait_cost)
+                auto_buy = True
+            else:
+                await event_adapter.send_message(uevent, '金币或鱼饵不足喔...\n发送 领低保 来获取启动资金吧~', at_sender=True)
+                return
+        
+        freq.start_cd(uid)
+        
+        # 消耗鱼饵
+        if not auto_buy:
+            await FishingManager.decrease_value(uid, 'fish', '🍙', config.bait_num, user_info)
+        
+        # 执行钓鱼
+        resp = await FishingManager.do_fishing(uid, user_info=user_info)
+        
+        await FishingManager.save_user_info(uid, user_info)
+        
+        msg = resp['msg']
+        if auto_buy:
+            msg = f"(已自动购买鱼饵-{bait_cost}金币)\n" + msg
+        
+        await event_adapter.send_message(uevent, msg, at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"钓鱼失败: {e}")
+
+
+# ----- 十连钓鱼 -----
+ten_fish_cmd = on_fullmatch(("十连钓鱼", "#十连钓鱼", "/十连钓鱼"), priority=5, block=True)
+
+@ten_fish_cmd.handle()
+async def handle_ten_fish(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        await FishingManager.multi_fishing(uevent, 10, 95, config.star_price * 10 // 2, '十连钓鱼', 
+                                          general_cooldown, event_adapter)
+    except Exception as e:
+        logger.error(f"十连钓鱼失败: {e}")
+
+
+# ----- 百连钓鱼 -----
+hundred_fish_cmd = on_fullmatch(("百连钓鱼", "#百连钓鱼", "/百连钓鱼"), priority=5, block=True)
+
+@hundred_fish_cmd.handle()
+async def handle_hundred_fish(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        await FishingManager.multi_fishing(uevent, 100, 900, config.star_price * 100 // 2, '百连钓鱼',
+                                          general_cooldown, event_adapter)
+    except Exception as e:
+        logger.error(f"百连钓鱼失败: {e}")
+
+
+# ----- 千连钓鱼 -----
+thousand_fish_cmd = on_fullmatch(("千连钓鱼", "#千连钓鱼", "/千连钓鱼"), priority=5, block=True)
+
+@thousand_fish_cmd.handle()
+async def handle_thousand_fish(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        await FishingManager.multi_fishing(uevent, 1000, 9000, config.star_price * 1000 // 2, '千连钓鱼',
+                                          general_cooldown, event_adapter)
+    except Exception as e:
+        logger.error(f"千连钓鱼失败: {e}")
+
+
+# ----- 买鱼饵 -----
+buy_bait_cmd = on_startswith(("买鱼饵", "#买鱼饵", "/买鱼饵"), priority=5, block=True)
+
+@buy_bait_cmd.handle()
+async def handle_buy_bait(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        message = uevent.get_args(("买鱼饵", "#买鱼饵", "/买鱼饵"))
+        num = int(message) if message.isdigit() else 1
+        
+        if num > 50000000:
+            await event_adapter.send_message(uevent, '一次只能购买50000000个鱼饵喔', at_sender=True)
+            return
+        
+        if num <= 0:
+            await event_adapter.send_message(uevent, '数量必须大于0', at_sender=True)
+            return
+        
+        user_gold = money.get_user_money(uid, 'gold') or 0
+        cost = num * config.bait_price
+        
+        if user_gold < cost:
+            await event_adapter.send_message(uevent, '金币不足喔...', at_sender=True)
+            return
+        
+        money.reduce_user_money(uid, 'gold', cost)
+        await FishingManager.increase_value(uid, 'fish', '🍙', num)
+        
+        await event_adapter.send_message(uevent, f'成功购买{num}个鱼饵~(金币-{cost})', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"买鱼饵失败: {e}")
+
+
+# ----- 背包 -----
+bag_cmd = on_fullmatch(("背包", "#背包", "/背包"), priority=5, block=True)
+
+@bag_cmd.handle()
+async def handle_bag(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        user_info = await FishingManager.get_user_info(uid)
+        
+        msg = '\n背包：\n'
+        items = ''
+        for item, count in user_info['fish'].items():
+            if count > 0:
+                items += f'{item}×{count}\n'
+        
+        if not items:
+            items = '空空如也...'
+        
+        await event_adapter.send_message(uevent, msg + items.strip(), at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"查看背包失败: {e}")
+
+
+# ----- 出售 -----
+sell_cmd = on_startswith(("出售", "#出售", "/出售"), priority=5, block=True)
+
+@sell_cmd.handle()
+async def handle_sell(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        message = uevent.get_args(("出售", "#出售", "/出售"))
+        parts = message.split()
+        
+        if not parts:
+            await event_adapter.send_message(uevent, '用法: 出售 鱼emoji [数量]', at_sender=True)
+            return
+        
+        fish = parts[0]
+        if fish not in FISH_LIST + ['🍙']:
+            await event_adapter.send_message(uevent, '这不是可出售的物品', at_sender=True)
+            return
+        
+        num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+        
+        user_info = await FishingManager.get_user_info(uid)
+        
+        if not user_info['fish'].get(fish) or user_info['fish'][fish] <= 0:
+            await event_adapter.send_message(uevent, f'你没有{fish}喔', at_sender=True)
+            return
+        
+        if num > user_info['fish'][fish]:
+            num = user_info['fish'][fish]
+        
+        await FishingManager.decrease_value(uid, 'fish', fish, num, user_info)
+        get_golds = FISH_PRICE.get(fish, 0) * num
+        money.increase_user_money(uid, 'gold', get_golds)
+        await FishingManager.increase_value(uid, 'statis', 'sell', get_golds, user_info)
+        await FishingManager.save_user_info(uid, user_info)
+        
+        await event_adapter.send_message(uevent, f'成功出售{num}条{fish}，得到{get_golds}枚金币~', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"出售失败: {e}")
+
+
+# ----- 出售小鱼 -----
+sell_small_cmd = on_fullmatch(("出售小鱼", "#出售小鱼", "/出售小鱼"), priority=5, block=True)
+
+@sell_small_cmd.handle()
+async def handle_sell_small(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        user_info = await FishingManager.get_user_info(uid)
+        fishes = "🐟🦀🦐🐡🐠"
+        
+        total_gold = 0
+        result = []
+        
+        for fish in fishes:
+            count = user_info['fish'].get(fish, 0)
+            if count > 0:
+                gold = count * FISH_PRICE.get(fish, 0)
+                total_gold += gold
+                user_info['fish'][fish] = 0
+                result.append(f'{fish}×{count} → {gold}金币')
+        
+        if total_gold > 0:
+            money.increase_user_money(uid, 'gold', total_gold)
+            await FishingManager.increase_value(uid, 'statis', 'sell', total_gold, user_info)
+            await FishingManager.save_user_info(uid, user_info)
+            await event_adapter.send_message(uevent, '\n'.join(result) + f'\n\n共获得{total_gold}金币~', at_sender=True)
+        else:
+            await event_adapter.send_message(uevent, '没有可出售的小鱼', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"出售小鱼失败: {e}")
+
+
+# ----- 一键出售 -----
+sell_all_cmd = on_fullmatch(("一键出售", "#一键出售", "/一键出售"), priority=5, block=True)
+
+@sell_all_cmd.handle()
+async def handle_sell_all(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        user_info = await FishingManager.get_user_info(uid)
+        fishes = "🐟🦀🦐🐡🐠🦈🌟"
+        
+        total_gold = 0
+        result = []
+        
+        for fish in fishes:
+            count = user_info['fish'].get(fish, 0)
+            if count > 0:
+                gold = count * FISH_PRICE.get(fish, 0)
+                total_gold += gold
+                user_info['fish'][fish] = 0
+                result.append(f'{fish}×{count} → {gold}金币')
+        
+        if total_gold > 0:
+            money.increase_user_money(uid, 'gold', total_gold)
+            await FishingManager.increase_value(uid, 'statis', 'sell', total_gold, user_info)
+            await FishingManager.save_user_info(uid, user_info)
+            await event_adapter.send_message(uevent, '\n'.join(result) + f'\n\n共获得{total_gold}金币~', at_sender=True)
+        else:
+            await event_adapter.send_message(uevent, '没有可出售的鱼', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"一键出售失败: {e}")
+
+
+# ----- 放生 -----
+free_cmd = on_startswith(("放生", "#放生", "/放生"), priority=5, block=True)
+
+@free_cmd.handle()
+async def handle_free(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        message = uevent.get_args(("放生", "#放生", "/放生"))
+        parts = message.split()
+        
+        if not parts or parts[0] not in FISH_LIST:
+            await event_adapter.send_message(uevent, '用法: 放生 鱼emoji [数量]', at_sender=True)
+            return
+        
+        fish = parts[0]
+        num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+        
+        user_info = await FishingManager.get_user_info(uid)
+        
+        if not user_info['fish'].get(fish) or user_info['fish'][fish] <= 0:
+            await event_adapter.send_message(uevent, f'你没有{fish}喔', at_sender=True)
+            return
+        
+        if num > user_info['fish'][fish]:
+            num = user_info['fish'][fish]
+        
+        await FishingManager.decrease_value(uid, 'fish', fish, num, user_info)
+        get_frags = FISH_PRICE.get(fish, 0) * num
+        
+        # 计算碎片转换
+        user_frags = user_info['statis'].get('frags', 0)
+        total_frags = user_frags + get_frags
+        crystals = 0
+        
+        if total_frags >= config.frag_to_crystal:
+            crystals = total_frags // config.frag_to_crystal
+            remaining_frags = total_frags % config.frag_to_crystal
+            user_info['statis']['frags'] = remaining_frags
+            await FishingManager.increase_value(uid, 'fish', '🔮', crystals, user_info)
+        else:
+            user_info['statis']['frags'] = total_frags
+        
+        await FishingManager.increase_value(uid, 'statis', 'free', num, user_info)
+        await FishingManager.save_user_info(uid, user_info)
+        
+        addition = f'\n✨ {crystals}颗水之心合成成功！' if crystals > 0 else ''
+        await event_adapter.send_message(uevent, f'{num}条{fish}成功回到水里，获得{get_frags}个水心碎片~{addition}', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"放生失败: {e}")
+
+
+# ----- 钓鱼统计 -----
+stat_cmd = on_fullmatch(("钓鱼统计", "#钓鱼统计", "/钓鱼统计"), priority=5, block=True)
+
+@stat_cmd.handle()
+async def handle_stat(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        user_info = await FishingManager.get_user_info(uid)
+        
+        free_count = user_info['statis'].get('free', 0)
+        sell_gold = user_info['statis'].get('sell', 0)
+        total_fish = user_info['statis'].get('total_fish', 0)
+        
+        free_msg = f"已放生{free_count}条鱼" if free_count else "还没有放生过鱼"
+        sell_msg = f"已卖出{sell_gold}金币的鱼" if sell_gold else "还没有出售过鱼"
+        total_msg = f"总共钓上了{total_fish}条鱼" if total_fish else "还没有钓上过鱼"
+        
+        await event_adapter.send_message(uevent, f'📊 钓鱼统计：\n{free_msg}\n{sell_msg}\n{total_msg}', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"钓鱼统计失败: {e}")
+
+
+# ===== 漂流瓶功能 =====
+
+# ----- 买漂流瓶 -----
+buy_bottle_cmd = on_startswith(("买漂流瓶", "#买漂流瓶", "/买漂流瓶"), priority=5, block=True)
+
+@buy_bottle_cmd.handle()
+async def handle_buy_bottle(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        message = uevent.get_args(("买漂流瓶", "#买漂流瓶", "/买漂流瓶"))
+        num = int(message) if message.isdigit() else 1
+        
+        if num > 10:
+            await event_adapter.send_message(uevent, '一次只能购买10个漂流瓶喔', at_sender=True)
+            return
+        
+        user_gold = money.get_user_money(uid, 'gold') or 0
+        cost = num * config.bottle_price
+        
+        if user_gold < cost:
+            await event_adapter.send_message(uevent, '金币不足喔...', at_sender=True)
+            return
+        
+        money.reduce_user_money(uid, 'gold', cost)
+        await FishingManager.increase_value(uid, 'fish', '✉', num)
+        
+        await event_adapter.send_message(uevent, f'成功买下{num}个漂流瓶~(金币-{cost})', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"买漂流瓶失败: {e}")
+
+
+# ----- 合成漂流瓶 -----
+compound_bottle_cmd = on_startswith(("合成漂流瓶", "#合成漂流瓶", "/合成漂流瓶"), priority=5, block=True)
+
+@compound_bottle_cmd.handle()
+async def handle_compound_bottle(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        message = uevent.get_args(("合成漂流瓶", "#合成漂流瓶", "/合成漂流瓶"))
+        num = int(message) if message.isdigit() else 1
+        
+        user_info = await FishingManager.get_user_info(uid)
+        crystal_need = num * config.crystal_to_bottle
+        
+        if user_info['fish'].get('🔮', 0) < crystal_need:
+            await event_adapter.send_message(uevent, f'需要{crystal_need}个水之心才能合成{num}个漂流瓶', at_sender=True)
+            return
+        
+        await FishingManager.decrease_value(uid, 'fish', '🔮', crystal_need, user_info)
+        await FishingManager.increase_value(uid, 'fish', '✉', num, user_info)
+        await FishingManager.save_user_info(uid, user_info)
+        
+        await event_adapter.send_message(uevent, f'{crystal_need}个🔮融合成了{num}个漂流瓶！', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"合成漂流瓶失败: {e}")
+
+
+# ----- 扔漂流瓶 -----
+throw_bottle_cmd = on_startswith(("扔漂流瓶", "#扔漂流瓶", "/扔漂流瓶"), priority=5, block=True)
+
+@throw_bottle_cmd.handle()
+async def handle_throw_bottle(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        if not throw_freq.check(uid):
+            await event_adapter.send_message(uevent, f'休息一会再扔吧~({int(throw_freq.left_time(uid))}s)')
+            return
+        
+        user_info = await FishingManager.get_user_info(uid)
+        
+        if user_info['fish'].get('✉', 0) <= 0:
+            await event_adapter.send_message(uevent, '背包里没有漂流瓶喔', at_sender=True)
+            return
+        
+        content = uevent.get_args(("扔漂流瓶", "#扔漂流瓶", "/扔漂流瓶"))
+        if not content:
+            await event_adapter.send_message(uevent, '漂流瓶内容不能为空喔', at_sender=True)
+            return
+        
+        if len(content) > 500:
+            await event_adapter.send_message(uevent, '内容太长了（最多500字）', at_sender=True)
+            return
+        
+        # 扣除漂流瓶
+        await FishingManager.decrease_value(uid, 'fish', '✉', 1, user_info)
+        await FishingManager.save_user_info(uid, user_info)
+        
+        # 生成漂流瓶ID并保存
+        bottle_id = str(int(time.time() * 1000) % 100000000)
+        BottleManager.create_bottle(bottle_id, uid, uevent.group_id, content)
+        
+        throw_freq.start_cd(uid)
+        
+        await event_adapter.send_message(uevent, f'你将漂流瓶放入水中，目送它漂向诗与远方...\n(漂流瓶ID: {bottle_id})', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"扔漂流瓶失败: {e}")
+
+
+# ----- 捡漂流瓶 -----
+pick_bottle_cmd = on_fullmatch(("捡漂流瓶", "#捡漂流瓶", "/捡漂流瓶"), priority=5, block=True)
+
+@pick_bottle_cmd.handle()
+async def handle_pick_bottle(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        if not get_freq.check(uid):
+            await event_adapter.send_message(uevent, f'休息一会再捡吧~({int(get_freq.left_time(uid))}s)')
+            return
+        
+        user_info = await FishingManager.get_user_info(uid)
+        
+        if user_info['fish'].get('🔮', 0) < config.crystal_to_net:
+            await event_adapter.send_message(uevent, f'捡漂流瓶需要{config.crystal_to_net}个水之心喔', at_sender=True)
+            return
+        
+        bottle_count = BottleManager.get_bottle_amount()
+        if bottle_count < 5:
+            await event_adapter.send_message(uevent, f'漂流瓶太少了（{bottle_count}/5个）', at_sender=True)
+            return
+        
+        # 随机捞取
+        bottle_id, bottle = BottleManager.pick_random_bottle()
+        
+        if bottle_id is None:
+            await event_adapter.send_message(uevent, '没有可捞取的漂流瓶', at_sender=True)
+            return
+        
+        # 扣除水之心
+        await FishingManager.decrease_value(uid, 'fish', '🔮', config.crystal_to_net, user_info)
+        await FishingManager.save_user_info(uid, user_info)
+        
+        get_freq.start_cd(uid)
+        
+        # 格式化漂流瓶内容
+        create_time = datetime.datetime.fromtimestamp(bottle['time']).strftime('%Y-%m-%d %H:%M')
+        
+        msg = f"🍾 漂流瓶 #{bottle_id}\n"
+        msg += f"━━━━━━━━━━\n"
+        msg += f"{bottle['content']}\n"
+        msg += f"━━━━━━━━━━\n"
+        msg += f"投放时间: {create_time}\n"
+        msg += f"被捞起次数: {bottle['pick_count']}"
+        
+        # 显示评论
+        comments = bottle.get('comments', [])
+        if comments:
+            msg += f"\n\n💬 评论 ({len(comments)}条):\n"
+            for c in comments[-3:]:  # 最多显示最近3条
+                msg += f"• {c['content']}\n"
+        
+        await event_adapter.send_message(uevent, msg)
+        
+    except Exception as e:
+        logger.error(f"捡漂流瓶失败: {e}")
+
+
+# ----- 漂流瓶数量 -----
+bottle_count_cmd = on_fullmatch(("漂流瓶数量", "#漂流瓶数量", "/漂流瓶数量"), priority=5, block=True)
+
+@bottle_count_cmd.handle()
+async def handle_bottle_count(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        count = BottleManager.get_bottle_amount()
+        
+        if count == 0:
+            await event_adapter.send_message(uevent, '目前水中没有漂流瓶...')
+        else:
+            await event_adapter.send_message(uevent, f'当前一共有{count}个漂流瓶~')
+        
+    except Exception as e:
+        logger.error(f"查询漂流瓶数量失败: {e}")
+
+
+# ----- 评论漂流瓶 -----
+comment_bottle_cmd = on_startswith(("评论漂流瓶", "#评论漂流瓶", "/评论漂流瓶"), priority=5, block=True)
+
+@comment_bottle_cmd.handle()
+async def handle_comment_bottle(event: Event, bot: Bot):
+    try:
+        uevent = await event_adapter.adapt_event(event, bot)
+        uid = uevent.uid
+        
+        if not comm_freq.check(uid):
+            await event_adapter.send_message(uevent, f'休息一会再评论吧~({int(comm_freq.left_time(uid))}s)')
+            return
+        
+        user_gold = money.get_user_money(uid, 'gold') or 0
+        if user_gold < config.comment_price:
+            await event_adapter.send_message(uevent, f'评论漂流瓶需要{config.comment_price}枚金币', at_sender=True)
+            return
+        
+        message = uevent.get_args(("评论漂流瓶", "#评论漂流瓶", "/评论漂流瓶"))
+        parts = message.split(' ', 1)
+        
+        if len(parts) != 2:
+            await event_adapter.send_message(uevent, '用法: 评论 漂流瓶ID 内容', at_sender=True)
+            return
+        
+        bottle_id = parts[0]
+        content = parts[1]
+        
+        if len(content) > 100:
+            await event_adapter.send_message(uevent, '评论内容太长了（最多100字）', at_sender=True)
+            return
+        
+        # 使用 BottleManager 添加评论
+        if not BottleManager.add_comment(bottle_id, uid, content):
+            await event_adapter.send_message(uevent, '找不到这个漂流瓶', at_sender=True)
+            return
+        
+        money.reduce_user_money(uid, 'gold', config.comment_price)
+        comm_freq.start_cd(uid)
+        
+        await event_adapter.send_message(uevent, f'评论成功！(金币-{config.comment_price})', at_sender=True)
+        
+    except Exception as e:
+        logger.error(f"评论漂流瓶失败: {e}")
+
+
+# ===== 初始化 =====
+driver = get_driver()
+
+@driver.on_startup
+async def init_fishing():
+    """初始化钓鱼插件"""
+    from pathlib import Path
+    plugin_dir = Path(__file__).parent.parent.parent
+    db_path = plugin_dir / "src" / "database" / "koinoribot.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    DatabaseManager.set_db_path(str(db_path))
+    DatabaseManager.init_fishing_database()
+    logger.info("Fishing 插件初始化完成")

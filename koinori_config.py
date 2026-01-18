@@ -1,0 +1,111 @@
+from pydantic import BaseModel
+
+
+class KoinoribotConfig(BaseModel):
+    """Koinoribot 全局配置"""
+    
+    # ================== 群聊管理 ==================
+    white_list_group: int = 1027790249      # 白名单群聊
+    group_auto_approve: bool = False        # 是否自动同意进群
+    friend_auto_approve: bool = False       # 是否自动同意好友邀请
+    star_cost_mode: bool = False            # 是否需要消耗星星来获得bot好友
+    
+    send_forward: bool = True               # 是否启用合并转发
+    public_bot: bool = True                 # 是否启用云bot模式
+    
+    # ================== 腾讯 API ==================
+    tx_secret_id: str = ""
+    tx_secret_key: str = ""
+    
+    # ================== 天行 API ==================
+    tianxing_apikey: str = ""
+    
+    # ================== 有道翻译 API ==================
+    youdao_appkey: str = ""
+    youdao_secret: str = ""
+    
+    # ================== 钓鱼配置 ==================
+    cool_time: int = 100                    # 单抽钓鱼冷却时长
+    fish_cd: int = 30                       # 通用钓鱼冷却
+    throw_cool_time: int = 5                # 扔漂流瓶冷却时长
+    salvage_cool_time: int = 5              # 捡漂流瓶冷却时长
+    comment_cool_time: int = 5              # 评论漂流瓶冷却时长
+    bait_num: int = 10                      # 钓鱼所需鱼饵
+    bait_price: int = 3                     # 鱼饵的价格
+    bottle_price: int = 100                 # 漂流瓶的价格
+    comment_price: int = 50                 # 评论漂流瓶需要的金币
+    frag_to_crystal: int = 50               # 碎片转化为水之心的数量
+    crystal_to_bottle: int = 1              # 水之心转化为漂流瓶的数量
+    crystal_to_net: int = 1                 # 捞漂流瓶需要的水之心数量
+    fish_limit_count: int = 10000           # 每日最大钓鱼次数
+    admin_group: int = 348831286            # 漂流瓶审核群
+    
+    # 鱼的配置
+    fish_list: list = ['🐟', '🦐', '🦀', '🐡', '🐠', '🦈', '🌟']
+    fish_price: dict = {
+        '🍙': 1, '🐟': 5, '🦐': 10, '🦀': 35, 
+        '🐡': 45, '🐠': 75, '🦈': 100, '🌟': 2000
+    }
+    # 钓鱼概率 (没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心)
+    probability: list = [(5, 10, 74, 10, 1)]
+    # 各种鱼上钩概率
+    probability_2: list = [(25, 23, 20, 15, 9, 7, 1)]
+    
+    # ================== 萝莉/Boss 配置 ==================
+    maxhp: int = 10000                      # 萝莉初始血量
+    lowdamage: int = 1000                   # 捉萝莉伤害下限
+    highdamage: int = 2000                  # 捉萝莉伤害上限
+    loliprice: int = 1000                   # 捉萝莉消耗的鱼饵
+    miss: float = 0.5                       # miss 概率
+    bbjb: float = 0.5                       # miss 后爆用户金币的概率
+    bjb: float = 0.5                        # 爆萝莉金币的概率
+    xinyun_bjb: float = 0.03                # 幸运大奖概率
+    jishagold: int = 10000                  # 击杀奖励
+    bosstime: int = 2                       # Boss战模式
+    
+    # ================== 经济系统 ==================
+    min_rest: int = 1000                    # 转账后最少剩余金币
+    dibao: int = 1                          # 是否开启低保
+    transfer_fee: float = 0.1               # 转账手续费比率
+    stone_fee: float = 0.05                 # 退还宝石手续费比率
+    return_item_fee: float = 0.5            # 退还宠物用品手续费比率
+    
+    # ================== 股票配置 ==================
+    maxtype: int = 4                        # 股票持有种类上限
+    maxcount: int = 500                     # 每种股票持有数量上限
+    
+    # ================== 其他配置 ==================
+    star_price: int = 0                     # 多连钓鱼是否消耗星星
+    extra_gold: int = 1                     # 钓鱼补贴开关
+    abilityfee: int = 100                   # 生成超能力所需金币
+    
+    # 调试模式
+    debug_mode: bool = False
+    freeze_fc: int = 75
+    freeze_sc: int = 950
+    
+    # 超级用户
+    SUPERUSERS: list = [10001, 10002]
+
+    # 黑名单用户
+    blackusers: list = []
+
+
+# 全局配置实例（将在插件初始化时设置）
+config: KoinoribotConfig = KoinoribotConfig()
+
+
+def get_config() -> KoinoribotConfig:
+    """获取配置实例"""
+    return config
+
+
+def load_config_from_env():
+    """从环境变量加载配置（可选）"""
+    import os
+    
+    # 示例：从环境变量覆盖配置
+    if os.getenv("KOINORI_TX_SECRET_ID"):
+        config.tx_secret_id = os.getenv("KOINORI_TX_SECRET_ID", "")
+    if os.getenv("KOINORI_TX_SECRET_KEY"):
+        config.tx_secret_key = os.getenv("KOINORI_TX_SECRET_KEY", "")
