@@ -121,3 +121,4 @@
 ## 4. 额外说明
 
 - 关于部分插件需要用到的静态图片资源文件与字体文件，恕不在此公开。如有需要可以移步[![插件试用群](https://img.shields.io/badge/插件试用-冰祈杂谈分铺-brightgreen)](https://jq.qq.com/?_wv=1027&k=fdFbP60u)。
+- 测试环境：Windows11 24H2; Python3.11.2
