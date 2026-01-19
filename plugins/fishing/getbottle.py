@@ -45,7 +45,7 @@ class BottleManager:
         return len([b for b in bottles.values() if not b.get('deleted', False)])
     
     @classmethod
-    def create_bottle(cls, bottle_id: str, uid: int, group_id: int, content: str):
+    def create_bottle(cls, bottle_id: str, uid: int, group_id: str, content: str) -> None:
         """
         创建新漂流瓶
         

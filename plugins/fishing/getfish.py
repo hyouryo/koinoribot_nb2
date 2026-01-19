@@ -10,8 +10,11 @@ import asyncio
 from typing import Dict, Optional
 
 from nonebot import logger
+from nonebot.matcher import Matcher
+from nonebot.params import Depends
 
 from ... import money
+from ...tools import get_uid
 from ...koinori_config import config
 from .util import DatabaseManager
 from .serif import GET_FISH_SERIF, NO_FISH_SERIF, COOL_TIME_SERIF
@@ -213,15 +216,16 @@ class FishingManager:
             if fish in FISH_PRICE:
                 total_value += count * FISH_PRICE[fish]
         return total_value
-    
+
     @classmethod
-    async def multi_fishing(cls, uevent, times: int, cost: int, star_cost: int, command_name: str, 
+    async def multi_fishing(cls, uid:int, matcher: Matcher,times: int, cost: int, star_cost: int, command_name: str, 
                            cooldown_manager, event_adapter):
         """
         多连钓鱼核心逻辑
-        
+
         Args:
-            uevent: 统一事件对象
+            uid: 统一用户ID
+            matcher: 事件实例
             times: 钓鱼次数
             cost: 鱼饵消耗
             star_cost: 星星消耗
@@ -229,23 +233,20 @@ class FishingManager:
             cooldown_manager: 冷却管理器实例
             event_adapter: 事件适配器模块
         """
-        uid = uevent.uid
         user_gold = money.get_user_money(uid, 'gold') or 0
         user_starstone = money.get_user_money(uid, 'starstone') or 0
-        
+
         # 检查星星
         if config.star_price != 0 and user_starstone < star_cost:
-            await event_adapter.send_message(uevent, '星星不够用了呢...', at_sender=True)
-            return
-        
+            await matcher.finish('星星不够用了呢...', at_sender=True)
+
         user_info = await cls.get_user_info(uid)
         actual_cost = cost * config.bait_price
-        
+
         # 冷却检测
         if cooldown_manager.left_time(uid) > 0:
-            await event_adapter.send_message(uevent, random.choice(COOL_TIME_SERIF) + f'({int(cooldown_manager.left_time(uid))}s)')
-            return
-        
+            await matcher.finish(random.choice(COOL_TIME_SERIF) + f'({int(cooldown_manager.left_time(uid))}s)')
+
         auto_buy = False
         # 检查鱼饵
         if user_info['fish'].get('🍙', 0) < cost:
@@ -253,34 +254,33 @@ class FishingManager:
                 money.reduce_user_money(uid, 'gold', actual_cost)
                 auto_buy = True
             else:
-                await event_adapter.send_message(uevent, '金币或鱼饵不足喔...', at_sender=True)
-                return
-        
+                await matcher.finish('金币或鱼饵不足喔...', at_sender=True)
+
         # 检查次数限制
         limit = DatabaseManager.check_and_update_fish_limit(uid, times)
         fish_count, limit_count = DatabaseManager.get_user_fish_count_today(uid)
         rest_count = limit_count - fish_count
-        
+
         if uid not in config.SUPERUSERS and not limit:
-            await event_adapter.send_message(uevent, f'\n今日钓鱼次数已达上限喔...你还能钓鱼{rest_count}次。\n明天再来吧~', at_sender=True)
+            await matcher.send(f'\n今日钓鱼次数已达上限喔...你还能钓鱼{rest_count}次。\n明天再来吧~', at_sender=True)
             if auto_buy:
                 money.increase_user_money(uid, 'gold', actual_cost)
             return
 
         cooldown_manager.start_cd(uid)
-        
+
         # 扣星星
         if config.star_price != 0:
             money.reduce_user_money(uid, 'starstone', star_cost)
-        
+
         # 消耗鱼饵
         if not auto_buy:
             await cls.decrease_value(uid, 'fish', '🍙', cost, user_info)
-        
+
         # 执行多次钓鱼
         result_summary: Dict[str, int] = {}
         have_star = False
-        
+
         for _ in range(times):
             resp = await cls.do_fishing(uid, skip_random_events=True, user_info=user_info)
             if resp['code'] == 1:
@@ -290,31 +290,31 @@ class FishingManager:
                         result_summary[fish] = result_summary.get(fish, 0) + 1
                         if fish == '🌟':
                             have_star = True
-        
+
         # 保存数据
         await cls.save_user_info(uid, user_info)
-        
+
         # 计算价值
         value = cls.cal_all_fish_value(result_summary)
-        
+
         # 构建消息
         summary_message = f"🎣 {command_name}结果：\n"
         if auto_buy:
             summary_message += f"(已自动购买{cost}个鱼饵)\n"
-        
+
         if result_summary:
             summary_message += "\n".join(f"{fish}: {count}条" for fish, count in result_summary.items())
         else:
             summary_message += "什么都没钓到..."
-        
+
         summary_message += f"\n\n总价值：{value}金币"
         summary_message += f"\n总花费：{actual_cost}金币"
-        
+
         # 活动补贴
         if not have_star and config.extra_gold == 1 and times == 100:
             money.increase_user_money(uid, 'gold', 300)
             summary_message += " +300(补贴)"
-        
+
         # 幸运币奖励
         if actual_cost > 0:
             ratio = value / actual_cost
@@ -333,5 +333,5 @@ class FishingManager:
             fish_count, limit_count = DatabaseManager.get_user_fish_count_today(uid)
             rest_count = limit_count - fish_count
             summary_message += f"\n\n今日已钓鱼：{fish_count}次\n剩余次数：{rest_count}次"
-        
-        await event_adapter.send_message(uevent, summary_message, at_sender=True)
+
+        await matcher.finish(summary_message, at_sender=True)
