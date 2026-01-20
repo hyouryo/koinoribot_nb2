@@ -9,10 +9,11 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import time
 
-from nonebot import on_startswith
+from nonebot import on_command
 from nonebot.plugin import PluginMetadata
-from nonebot.adapters import Event, Bot
+from nonebot.adapters import Event, Bot, Message
 from nonebot import logger
+from nonebot.params import CommandArg
 
 from ... import event_adapter
 from ... import money
@@ -79,11 +80,11 @@ def close_session(group_id: str):
 
 
 # ===== 发红包命令 =====
-fa_hongbao = on_startswith(("发红包", "#发红包", "/发红包"), priority=5, block=True)
+fa_hongbao = on_command("发红包", priority=5, block=True)
 
 
 @fa_hongbao.handle()
-async def handle_fa_hongbao(event: Event, bot: Bot):
+async def handle_fa_hongbao(event: Event, bot: Bot, args: Message = CommandArg()):
     """处理发红包命令"""
     try:
         uevent = await event_adapter.adapt_event(event, bot)
@@ -113,7 +114,7 @@ async def handle_fa_hongbao(event: Event, bot: Bot):
             return
         
         # 解析参数
-        message = uevent.get_args(("发红包", "#发红包", "/发红包"))
+        message = args.extract_plain_text()
         parts = message.split()
         
         if not parts:
@@ -170,7 +171,7 @@ async def handle_fa_hongbao(event: Event, bot: Bot):
 
 
 # ===== 抢红包命令 =====
-qiang_hongbao = on_startswith(("抢红包", "#抢红包", "/抢红包"), priority=5, block=True)
+qiang_hongbao = on_command("抢红包", priority=5, block=True)
 
 
 @qiang_hongbao.handle()

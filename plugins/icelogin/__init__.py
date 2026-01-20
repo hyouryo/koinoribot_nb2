@@ -5,7 +5,7 @@
 迁移自旧版 koinoribot
 """
 
-from nonebot import on_fullmatch, on_startswith
+from nonebot import on_command
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Event, Bot
 from nonebot import logger
@@ -27,7 +27,7 @@ purse_limiter = FreqLimiter(30)
 
 
 # ===== 签到命令 =====
-login_cmd = on_fullmatch(("签到", "/签到", "#签到"), priority=5, block=True)
+login_cmd = on_command("签到", priority=5, block=True)
 
 
 @login_cmd.handle()
@@ -127,7 +127,7 @@ async def simple_login(uid: int, username: str) -> str:
 '''
 
 # ===== 钱包命令 =====
-purse_cmd = on_fullmatch(("我的钱包", "#我的钱包", "/我的钱包"), priority=5, block=True)
+purse_cmd = on_command("我的钱包", priority=5, block=True)
 
 
 @purse_cmd.handle()
@@ -172,7 +172,7 @@ async def simple_purse(uid: int, username: str) -> str:
 '''
 
 # ===== 金币排行榜 =====
-rank_cmd = on_fullmatch(("金币排行榜", "#金币排行榜", "/金币排行榜"), priority=5, block=True)
+rank_cmd = on_command("金币排行榜", priority=5, block=True)
 
 
 @rank_cmd.handle()
@@ -228,7 +228,7 @@ async def handle_gold_ranking(event: Event, bot: Bot):
 
 
 # ===== 上传签到图片 =====
-upload_bg_cmd = on_startswith(("上传签到图片", "#上传签到图片", "/上传签到图片"), priority=5, block=True)
+upload_bg_cmd = on_command("上传签到图片", priority=5, block=True)
 
 # 自定义图片消耗金币数（0表示免费）
 UPLOAD_BG_COST = 0
@@ -281,7 +281,7 @@ async def handle_upload_bg(event: Event, bot: Bot):
 
 
 # ===== 清除签到图片 =====
-remove_bg_cmd = on_startswith(("清除签到图片", "#清除签到图片", "/清除签到图片"), priority=5, block=True)
+remove_bg_cmd = on_command("清除签到图片", priority=5, block=True)
 
 @remove_bg_cmd.handle()
 async def handle_remove_bg(event: Event, bot: Bot):

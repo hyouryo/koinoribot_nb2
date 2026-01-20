@@ -10,7 +10,7 @@ import datetime
 import random
 import time
 
-from nonebot import get_driver, logger, on_command, on_fullmatch
+from nonebot import get_driver, logger, on_command
 from nonebot.adapters import Bot, Event, Message
 from nonebot.log import logger
 from nonebot.matcher import Matcher
@@ -49,9 +49,7 @@ general_cooldown = CooldownManager(config.fish_cd)
 # ===== 命令处理器 =====
 
 # ----- 钓鱼帮助 -----
-fish_help_cmd = on_fullmatch(
-    ("钓鱼帮助", "#钓鱼帮助", "/钓鱼帮助"), priority=5, block=True
-)
+fish_help_cmd = on_command("钓鱼帮助", priority=5, block=True)
 
 # 钓鱼帮助内容（迁移自old_bot完整版）
 help_1 = """
@@ -114,7 +112,7 @@ async def handle_fish_help(event: Event, bot: Bot):
 
 
 # ----- 概率公示 -----
-prob_cmd = on_fullmatch("概率公示", priority=5, block=True)
+prob_cmd = on_command("概率公示", priority=5, block=True)
 
 
 @prob_cmd.handle()
@@ -134,7 +132,7 @@ async def handle_prob() -> None:
 
 
 # ----- 单抽钓鱼 -----
-single_fish_cmd = on_fullmatch("钓鱼", priority=5, block=True)
+single_fish_cmd = on_command("钓鱼", priority=5, block=True)
 
 
 @single_fish_cmd.handle()
@@ -182,9 +180,7 @@ async def handle_single_fish(
 
 
 # ----- 十连钓鱼 -----
-ten_fish_cmd = on_fullmatch(
-    ("十连钓鱼", "#十连钓鱼", "/十连钓鱼"), priority=5, block=True
-)
+ten_fish_cmd = on_command("十连钓鱼", priority=5, block=True)
 
 
 @ten_fish_cmd.handle()
@@ -206,9 +202,7 @@ async def handle_ten_fish(
 
 
 # ----- 百连钓鱼 -----
-hundred_fish_cmd = on_fullmatch(
-    ("百连钓鱼", "#百连钓鱼", "/百连钓鱼"), priority=5, block=True
-)
+hundred_fish_cmd = on_command("百连钓鱼", priority=5, block=True)
 
 
 @hundred_fish_cmd.handle()
@@ -230,9 +224,7 @@ async def handle_hundred_fish(
 
 
 # ----- 千连钓鱼 -----
-thousand_fish_cmd = on_fullmatch(
-    ("千连钓鱼", "#千连钓鱼", "/千连钓鱼"), priority=5, block=True
-)
+thousand_fish_cmd = on_command("千连钓鱼", priority=5, block=True)
 
 
 @thousand_fish_cmd.handle()
@@ -284,7 +276,7 @@ async def handle_buy_bait(
 
 
 # ----- 背包 -----
-bag_cmd = on_fullmatch("背包", priority=5, block=True)
+bag_cmd = on_command("背包", priority=5, block=True)
 
 
 @bag_cmd.handle()
@@ -345,9 +337,7 @@ async def handle_sell(
 
 
 # ----- 出售小鱼 -----
-sell_small_cmd = on_fullmatch(
-    ("出售小鱼", "#出售小鱼", "/出售小鱼"), priority=5, block=True
-)
+sell_small_cmd = on_command("出售小鱼", priority=5, block=True)
 
 
 @sell_small_cmd.handle()
@@ -383,9 +373,7 @@ async def handle_sell_small(
 
 
 # ----- 一键出售 -----
-sell_all_cmd = on_fullmatch(
-    ("一键出售", "#一键出售", "/一键出售"), priority=5, block=True
-)
+sell_all_cmd = on_command("一键出售", priority=5, block=True)
 
 
 @sell_all_cmd.handle()
@@ -472,7 +460,7 @@ async def handle_free(
 
 
 # ----- 钓鱼统计 -----
-stat_cmd = on_fullmatch("钓鱼统计", priority=5, block=True)
+stat_cmd = on_command("钓鱼统计", priority=5, block=True)
 
 
 @stat_cmd.handle()
@@ -598,7 +586,7 @@ async def handle_throw_bottle(
 
 
 # ----- 捡漂流瓶 -----
-pick_bottle_cmd = on_fullmatch("捡漂流瓶", priority=5, block=True)
+pick_bottle_cmd = on_command("捡漂流瓶", priority=5, block=True)
 
 
 @pick_bottle_cmd.handle()
@@ -658,7 +646,7 @@ async def handle_pick_bottle(uid: int = Depends(get_uid)) -> None:
 
 
 # ----- 漂流瓶数量 -----
-bottle_count_cmd = on_fullmatch("漂流瓶数量", priority=5, block=True)
+bottle_count_cmd = on_command("漂流瓶数量", priority=5, block=True)
 
 
 @bottle_count_cmd.handle()

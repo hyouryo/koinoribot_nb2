@@ -14,7 +14,7 @@ import base64
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 
-from nonebot import on_fullmatch, on_startswith, on_regex, get_driver, require
+from nonebot import on_command, on_regex, get_driver, require
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Event, Bot
 from nonebot import logger
@@ -45,7 +45,7 @@ EVENT_COOLDOWN = 3500
 
 
 # ===== 股票帮助 =====
-stock_help_cmd = on_fullmatch(("股票帮助", "#股票帮助", "/股票帮助"), priority=5, block=True)
+stock_help_cmd = on_command("股票帮助", priority=5, block=True)
 
 # 炒股帮助内容（迁移自old_bot完整版）
 help_chaogu = '''炒股游戏帮助：
@@ -98,7 +98,7 @@ async def handle_stock_help(event: Event, bot: Bot):
 
 
 # ===== 股票列表 =====
-stock_list_cmd = on_fullmatch(("股票列表", "#股票列表", "/股票列表"), priority=5, block=True)
+stock_list_cmd = on_command("股票列表", priority=5, block=True)
 
 @stock_list_cmd.handle()
 async def handle_stock_list(event: Event, bot: Bot):
@@ -366,7 +366,7 @@ async def handle_sell_stock(event: Event, bot: Bot):
 
 
 # ===== 我的股仓 =====
-my_portfolio_cmd = on_fullmatch(("我的股仓", "#我的股仓", "/我的股仓"), priority=5, block=True)
+my_portfolio_cmd = on_command("我的股仓", priority=5, block=True)
 
 @my_portfolio_cmd.handle()
 async def handle_my_portfolio(event: Event, bot: Bot):
@@ -403,7 +403,7 @@ async def handle_my_portfolio(event: Event, bot: Bot):
 
 
 # ===== 市场动态 =====
-market_events_cmd = on_fullmatch(("市场动态", "#市场动态", "/市场动态"), priority=5, block=True)
+market_events_cmd = on_command("市场动态", priority=5, block=True)
 
 @market_events_cmd.handle()
 async def handle_market_events(event: Event, bot: Bot):

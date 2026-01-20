@@ -11,10 +11,11 @@ import math
 from datetime import datetime
 from typing import Optional
 
-from nonebot import on_fullmatch, on_startswith, get_driver
+from nonebot import on_command, get_driver
 from nonebot.plugin import PluginMetadata
-from nonebot.adapters import Event, Bot
+from nonebot.adapters import Event, Bot, Message
 from nonebot import logger
+from nonebot.params import CommandArg
 
 from ... import event_adapter
 from ... import money
@@ -40,7 +41,7 @@ __plugin_meta__ = PluginMetadata(
 
 
 # ===== 宠物帮助 =====
-pet_help_cmd = on_fullmatch(("宠物帮助", "#宠物帮助", "/宠物帮助"), priority=5, block=True)
+pet_help_cmd = on_command("宠物帮助", priority=5, block=True)
 
 # 宠物帮助内容（迁移自old_bot完整版）
 pet_help = """
@@ -106,17 +107,17 @@ async def handle_pet_help(event: Event, bot: Bot):
 
 
 # ===== 买宝石 =====
-buy_kirastone_cmd = on_startswith(("买宝石", "#买宝石", "/买宝石"), priority=5, block=True)
+buy_kirastone_cmd = on_command("买宝石", priority=5, block=True)
 @buy_kirastone_cmd.handle()
-async def handle_buy_kirastone(event: Event, bot: Bot):
+async def handle_buy_kirastone(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
-        args = uevent.get_args(("买宝石", "#买宝石", "/买宝石")).split()
-        if not args or not args[0].isdigit():
+        arg_parts = args.extract_plain_text().split()
+        if not arg_parts or not arg_parts[0].isdigit():
             await event_adapter.send_message(uevent, "请指定购买数量，例如：买宝石 1", at_sender=True)
             return
-        quantity = int(args[0])
+        quantity = int(arg_parts[0])
         if quantity <= 0:
             await event_adapter.send_message(uevent, "购买数量必须是正整数！", at_sender=True)
             return
@@ -136,17 +137,17 @@ async def handle_buy_kirastone(event: Event, bot: Bot):
         logger.error(f"买宝石失败: {e}")
 
 # ===== 卖宝石 =====
-sell_kirastone_cmd = on_startswith(("卖宝石", "#卖宝石", "/卖宝石"), priority=5, block=True)
+sell_kirastone_cmd = on_command("卖宝石", priority=5, block=True)
 @sell_kirastone_cmd.handle()
-async def handle_sell_kirastone(event: Event, bot: Bot):
+async def handle_sell_kirastone(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
-        args = uevent.get_args(("卖宝石", "#卖宝石", "/卖宝石")).split()
-        if not args or not args[0].isdigit():
+        arg_parts = args.extract_plain_text().split()
+        if not arg_parts or not arg_parts[0].isdigit():
             await event_adapter.send_message(uevent, "请指定出售数量，例如：卖宝石 1", at_sender=True)
             return
-        quantity = int(args[0])
+        quantity = int(arg_parts[0])
         if quantity <= 0:
             await event_adapter.send_message(uevent, "出售数量必须是正整数！", at_sender=True)
             return
@@ -166,15 +167,15 @@ async def handle_sell_kirastone(event: Event, bot: Bot):
         logger.error(f"卖宝石失败: {e}")
 
 # ===== 开启扭蛋 =====
-open_gacha_cmd = on_startswith(("开启", "#开启", "/开启"), priority=5, block=True)
+open_gacha_cmd = on_command("开启", priority=5, block=True)
 
 @open_gacha_cmd.handle()
-async def handle_open_gacha(event: Event, bot: Bot):
+async def handle_open_gacha(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
         
-        gacha_name = uevent.get_args(("开启", "#开启", "/开启"))
+        gacha_name = args.extract_plain_text()
         if not gacha_name or "扭蛋" not in gacha_name:
             return
         
@@ -262,14 +263,14 @@ async def handle_open_gacha(event: Event, bot: Bot):
 
 
 # ===== 领养宠物 =====
-adopt_cmd = on_startswith(("领养宠物", "#领养宠物", "/领养宠物"), priority=5, block=True)
+adopt_cmd = on_command("领养宠物", priority=5, block=True)
 
 @adopt_cmd.handle()
-async def handle_adopt(event: Event, bot: Bot):
+async def handle_adopt(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
-        pet_name = uevent.get_args(("领养宠物", "#领养宠物", "/领养宠物"))
+        pet_name = args.extract_plain_text()
         
         if not pet_name:
             await event_adapter.send_message(uevent, "请为你的宠物取个名字！\n例如：领养宠物 小白", at_sender=True)
@@ -323,7 +324,7 @@ async def handle_adopt(event: Event, bot: Bot):
 
 
 # ===== 放弃宠物 =====
-cancel_adopt_cmd = on_fullmatch(("放弃宠物", "#放弃宠物", "/放弃宠物"), priority=5, block=True)
+cancel_adopt_cmd = on_command("放弃宠物", priority=5, block=True)
 
 @cancel_adopt_cmd.handle()
 async def handle_cancel_adopt(event: Event, bot: Bot):
@@ -345,7 +346,7 @@ async def handle_cancel_adopt(event: Event, bot: Bot):
 
 
 # ===== 我的宠物 =====
-my_pet_cmd = on_fullmatch(("我的宠物", "#我的宠物", "/我的宠物"), priority=5, block=True)
+my_pet_cmd = on_command("我的宠物", priority=5, block=True)
 
 @my_pet_cmd.handle()
 async def handle_my_pet(event: Event, bot: Bot):
@@ -425,7 +426,7 @@ async def handle_my_pet(event: Event, bot: Bot):
 
 
 # ===== 宠物商店 =====
-shop_cmd = on_fullmatch(("宠物商店", "#宠物商店", "/宠物商店"), priority=5, block=True)
+shop_cmd = on_command("宠物商店", priority=5, block=True)
 
 @shop_cmd.handle()
 async def handle_shop(event: Event, bot: Bot):
@@ -448,21 +449,21 @@ async def handle_shop(event: Event, bot: Bot):
 
 
 # ===== 购买 =====
-buy_cmd = on_startswith(("购买", "#购买", "/购买"), priority=5, block=True)
+buy_cmd = on_command("购买", priority=5, block=True)
 
 @buy_cmd.handle()
-async def handle_buy(event: Event, bot: Bot):
+async def handle_buy(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
         
-        args = uevent.get_args(("购买", "#购买", "/购买")).split()
-        if not args:
+        arg_parts = args.extract_plain_text().split()
+        if not arg_parts:
             return
         
-        item_name = args[0]
+        item_name = arg_parts[0]
         try:
-            quantity = int(args[1]) if len(args) > 1 else 1
+            quantity = int(arg_parts[1]) if len(arg_parts) > 1 else 1
             if quantity <= 0:
                 await event_adapter.send_message(uevent, "购买数量必须是正整数！", at_sender=True)
                 return
@@ -491,7 +492,7 @@ async def handle_buy(event: Event, bot: Bot):
 
 
 # ===== 宠物背包 =====
-pet_bag_cmd = on_fullmatch(("宠物背包", "#宠物背包", "/宠物背包"), priority=5, block=True)
+pet_bag_cmd = on_command("宠物背包", priority=5, block=True)
 
 @pet_bag_cmd.handle()
 async def handle_pet_bag(event: Event, bot: Bot):
@@ -515,21 +516,21 @@ async def handle_pet_bag(event: Event, bot: Bot):
 
 
 # ===== 退还宠物用品 =====
-return_item_cmd = on_startswith(("退还", "#退还", "/退还"), priority=5, block=True)
+return_item_cmd = on_command("退还", priority=5, block=True)
 
 @return_item_cmd.handle()
-async def handle_return_item(event: Event, bot: Bot):
+async def handle_return_item(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
         
-        args = uevent.get_args(("退还", "#退还", "/退还")).split()
+        arg_parts = args.extract_plain_text().split()
         
         # 检查参数
-        if not args:
+        if not arg_parts:
             return
         
-        item_name = args[0]
+        item_name = arg_parts[0]
         if item_name not in PET_SHOP_ITEMS:
             return
         
@@ -537,7 +538,7 @@ async def handle_return_item(event: Event, bot: Bot):
         count = user_items.get(item_name, 0)
         
         try:
-            quantity = int(args[1]) if len(args) > 1 else 1
+            quantity = int(arg_parts[1]) if len(arg_parts) > 1 else 1
             if quantity <= 0:
                 await event_adapter.send_message(uevent, "退还数量必须是正整数！", at_sender=True)
                 return
@@ -565,14 +566,14 @@ async def handle_return_item(event: Event, bot: Bot):
 
 
 # ===== 投喂 =====
-feed_cmd = on_startswith(("投喂", "#投喂", "/投喂"), priority=5, block=True)
+feed_cmd = on_command("投喂", priority=5, block=True)
 
 @feed_cmd.handle()
-async def handle_feed(event: Event, bot: Bot):
+async def handle_feed(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
-        food_type = uevent.get_args(("投喂", "#投喂", "/投喂"))
+        food_type = args.extract_plain_text()
         
         valid_foods = {"普通料理", "高级料理", "豪华料理"}
         if food_type not in valid_foods:
@@ -613,7 +614,7 @@ async def handle_feed(event: Event, bot: Bot):
 
 
 # ===== 摸摸宠物 =====
-pat_cmd = on_fullmatch(("摸摸宠物", "#摸摸宠物", "/摸摸宠物"), priority=5, block=True)
+pat_cmd = on_command("摸摸宠物", priority=5, block=True)
 
 @pat_cmd.handle()
 async def handle_pat(event: Event, bot: Bot):
@@ -644,7 +645,7 @@ async def handle_pat(event: Event, bot: Bot):
 
 
 # ===== 补充精力 =====
-energy_cmd = on_fullmatch(("补充精力", "#补充精力", "/补充精力"), priority=5, block=True)
+energy_cmd = on_command("补充精力", priority=5, block=True)
 
 @energy_cmd.handle()
 async def handle_energy(event: Event, bot: Bot):
@@ -681,7 +682,7 @@ async def handle_energy(event: Event, bot: Bot):
 
 
 # ===== 学习技能 =====
-learn_skill_cmd = on_fullmatch(("学习技能", "#学习技能", "/学习技能"), priority=5, block=True)
+learn_skill_cmd = on_command("学习技能", priority=5, block=True)
 
 @learn_skill_cmd.handle()
 async def handle_learn_skill(event: Event, bot: Bot):
@@ -736,7 +737,7 @@ async def handle_learn_skill(event: Event, bot: Bot):
 
 
 # ===== 宠物事件 =====
-pet_event_cmd = on_fullmatch(("宠物事件", "#宠物事件", "/宠物事件"), priority=5, block=True)
+pet_event_cmd = on_command("宠物事件", priority=5, block=True)
 
 @pet_event_cmd.handle()
 async def handle_pet_event(event: Event, bot: Bot):
@@ -823,7 +824,7 @@ async def handle_pet_event(event: Event, bot: Bot):
 
 
 # ===== 宠物进化 =====
-evolve_cmd = on_fullmatch(("宠物进化", "#宠物进化", "/宠物进化"), priority=5, block=True)
+evolve_cmd = on_command("宠物进化", priority=5, block=True)
 
 @evolve_cmd.handle()
 async def handle_evolve(event: Event, bot: Bot):
@@ -888,14 +889,14 @@ async def handle_evolve(event: Event, bot: Bot):
 
 
 # ===== 宠物改名 =====
-rename_cmd = on_startswith(("宠物改名", "#宠物改名", "/宠物改名"), priority=5, block=True)
+rename_cmd = on_command("宠物改名", priority=5, block=True)
 
 @rename_cmd.handle()
-async def handle_rename(event: Event, bot: Bot):
+async def handle_rename(event: Event, bot: Bot, args: Message = CommandArg()):
     try:
         uevent = await event_adapter.adapt_event(event, bot)
         uid = uevent.uid
-        new_name = uevent.get_args(("宠物改名", "#宠物改名", "/宠物改名"))
+        new_name = args.extract_plain_text()
         
         if not new_name:
             await event_adapter.send_message(uevent, "请提供新名字！例如：宠物改名 小黑", at_sender=True)
@@ -920,7 +921,7 @@ async def handle_rename(event: Event, bot: Bot):
 
 
 # ===== 寻回宠物 =====
-retrieve_cmd = on_fullmatch(("寻回宠物", "#寻回宠物", "/寻回宠物"), priority=5, block=True)
+retrieve_cmd = on_command("寻回宠物", priority=5, block=True)
 
 @retrieve_cmd.handle()
 async def handle_retrieve(event: Event, bot: Bot):
@@ -958,7 +959,7 @@ async def handle_retrieve(event: Event, bot: Bot):
 
 
 # ===== 永恒誓约 =====
-oath_cmd = on_fullmatch(("永恒誓约", "#永恒誓约", "/永恒誓约"), priority=5, block=True)
+oath_cmd = on_command("永恒誓约", priority=5, block=True)
 
 @oath_cmd.handle()
 async def handle_eternal_oath(event: Event, bot: Bot):
@@ -1018,7 +1019,7 @@ async def handle_eternal_oath(event: Event, bot: Bot):
 
 
 # ===== 技能帮助 =====
-skill_help_cmd = on_fullmatch(("技能帮助", "#技能帮助", "/技能帮助"), priority=5, block=True)
+skill_help_cmd = on_command("技能帮助", priority=5, block=True)
 
 # 生成技能帮助内容
 skill_list = []
