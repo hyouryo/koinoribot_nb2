@@ -91,77 +91,72 @@ async def handle_fa_hongbao(
     uid: int = Depends(get_uid)
 ):
     """处理发红包命令"""
+    group_id = get_group_id_optional(event)
+    
+    if not group_id:
+        await fa_hongbao.finish("红包功能仅支持群聊")
+    
+    # 检查是否有进行中的红包
+    existing = get_session(group_id)
+    if existing:
+        if existing.is_expired:
+            # 过期处理
+            return_amount = existing.remaining_amount
+            if return_amount > 0:
+                money.increase_user_money(existing.owner_uid, 'gold', return_amount)
+            close_session(group_id)
+        else:
+            await fa_hongbao.finish("当前还有没领完的金币红包~")
+    
+    # 频率限制
+    if not freq.check(uid):
+        await fa_hongbao.finish("十秒钟之内只能发一个红包")
+    
+    # 解析参数
+    message = args.extract_plain_text()
+    parts = message.split()
+    
+    if not parts:
+        await fa_hongbao.finish("用法: 发红包 金额 [份数]\n例如: 发红包 1000 5")
+    
     try:
-        group_id = get_group_id_optional(event)
-        
-        if not group_id:
-            await fa_hongbao.finish("红包功能仅支持群聊")
-        
-        # 检查是否有进行中的红包
-        existing = get_session(group_id)
-        if existing:
-            if existing.is_expired:
-                # 过期处理
-                return_amount = existing.remaining_amount
-                if return_amount > 0:
-                    money.increase_user_money(existing.owner_uid, 'gold', return_amount)
-                close_session(group_id)
-            else:
-                await fa_hongbao.finish("当前还有没领完的金币红包~")
-        
-        # 频率限制
-        if not freq.check(uid):
-            await fa_hongbao.finish("十秒钟之内只能发一个红包")
-        
-        # 解析参数
-        message = args.extract_plain_text()
-        parts = message.split()
-        
-        if not parts:
-            await fa_hongbao.finish("用法: 发红包 金额 [份数]\n例如: 发红包 1000 5")
-        
-        try:
-            amount = int(parts[0])
-            num_packets = int(parts[1]) if len(parts) > 1 else 5
-        except ValueError:
-            await fa_hongbao.finish("金额和份数必须是数字")
-        
-        if num_packets <= 2:
-            await fa_hongbao.finish("红包份数至少要3份")
-        
-        if amount <= num_packets:
-            await fa_hongbao.finish("金额太少啦，每份红包至少要1金币")
-        
-        # 检查用户金币
-        user_gold = money.get_user_money(uid, 'gold') or 0
-        if amount > user_gold:
-            await fa_hongbao.finish(f"金币不足！你只有 {user_gold} 金币")
-        
-        # 扣除金币
-        money.reduce_user_money(uid, 'gold', amount)
-        
-        # 创建红包
-        packets = get_double_mean_money(amount, num_packets)
-        session = HongbaoSession(
-            owner_uid=uid,
-            group_id=group_id,
-            total_amount=amount,
-            packets=packets,
-            claimed_uids=[],
-            create_time=time.time()
-        )
-        _sessions[group_id] = session
-        
-        freq.start_cd(uid)
-        
-        nickname = get_sender_nickname(event) or f"用户{uid}"
-        await fa_hongbao.finish(
-            f"{nickname} 发了一个 {amount} 金币的红包，共 {num_packets} 份~\n发送「抢红包」来领取！"
-        )
-        
-    except Exception as e:
-        logger.error(f"发红包失败: {e}")
-        await bot.send(event, f"发红包失败: {e}")
+        amount = int(parts[0])
+        num_packets = int(parts[1]) if len(parts) > 1 else 5
+    except ValueError:
+        await fa_hongbao.finish("金额和份数必须是数字")
+    
+    if num_packets <= 2:
+        await fa_hongbao.finish("红包份数至少要3份")
+    
+    if amount <= num_packets:
+        await fa_hongbao.finish("金额太少啦，每份红包至少要1金币")
+    
+    # 检查用户金币
+    user_gold = money.get_user_money(uid, 'gold') or 0
+    if amount > user_gold:
+        await fa_hongbao.finish(f"金币不足！你只有 {user_gold} 金币")
+    
+    # 扣除金币
+    money.reduce_user_money(uid, 'gold', amount)
+    
+    # 创建红包
+    packets = get_double_mean_money(amount, num_packets)
+    session = HongbaoSession(
+        owner_uid=uid,
+        group_id=group_id,
+        total_amount=amount,
+        packets=packets,
+        claimed_uids=[],
+        create_time=time.time()
+    )
+    _sessions[group_id] = session
+    
+    freq.start_cd(uid)
+    
+    nickname = get_sender_nickname(event) or f"用户{uid}"
+    await fa_hongbao.finish(
+        f"{nickname} 发了一个 {amount} 金币的红包，共 {num_packets} 份~\n发送「抢红包」来领取！"
+    )
 
 
 # ===== 抢红包命令 =====
@@ -175,32 +170,28 @@ async def handle_qiang_hongbao(
     uid: int = Depends(get_uid)
 ):
     """处理抢红包命令"""
-    try:
-        group_id = get_group_id_optional(event)
+    group_id = get_group_id_optional(event)
+    
+    if not group_id:
+        return
+    
+    session = get_session(group_id)
+    if not session:
+        return
+    
+    # 检查是否已抢过
+    if uid in session.claimed_uids:
+        await qiang_hongbao.finish("你已经抢过红包了！", at_sender=True)
+    
+    # 抢红包
+    if session.packets:
+        amount = session.packets.pop()
+        session.claimed_uids.append(uid)
+        money.increase_user_money(uid, 'gold', amount)
         
-        if not group_id:
-            return
+        await qiang_hongbao.send(f"恭喜抢到 {amount} 金币~", at_sender=True)
         
-        session = get_session(group_id)
-        if not session:
-            return
-        
-        # 检查是否已抢过
-        if uid in session.claimed_uids:
-            await qiang_hongbao.finish("你已经抢过红包了！", at_sender=True)
-        
-        # 抢红包
-        if session.packets:
-            amount = session.packets.pop()
-            session.claimed_uids.append(uid)
-            money.increase_user_money(uid, 'gold', amount)
-            
-            await qiang_hongbao.send(f"恭喜抢到 {amount} 金币~", at_sender=True)
-            
-            # 检查是否抢完
-            if not session.packets:
-                close_session(group_id)
-                await qiang_hongbao.send("红包领完啦~")
-        
-    except Exception as e:
-        logger.error(f"抢红包失败: {e}")
+        # 检查是否抢完
+        if not session.packets:
+            close_session(group_id)
+            await qiang_hongbao.send("红包领完啦~")
