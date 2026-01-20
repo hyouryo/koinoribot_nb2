@@ -8,12 +8,13 @@
 from nonebot import on_command
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Event, Bot
+from nonebot.params import Depends
 from nonebot import logger
 
-# 导入事件适配器和核心模块
-from ... import event_adapter
+# 导入核心模块
 from ... import money
 from ...utils import FreqLimiter
+from ...tools import get_uid, get_sender_nickname, get_user_avatar_url
 
 __plugin_meta__ = PluginMetadata(
     name="icelogin",
@@ -31,30 +32,28 @@ login_cmd = on_command("签到", priority=5, block=True)
 
 
 @login_cmd.handle()
-async def handle_login(event: Event, bot: Bot):
+async def handle_login(
+    event: Event, 
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
     """处理签到命令"""
     try:
-        # 转换为统一事件
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        
         # 频率限制检查
         if not login_limiter.check(uid):
             left = round(login_limiter.left_time(uid))
-            await event_adapter.send_message(
-                uevent, 
+            await login_cmd.finish(
                 f"已经领过签到卡片啦，稍微等一下再来领喔~({left}s)",
                 at_sender=True
             )
-            return
         
         # 获取用户昵称
-        username = uevent.sender_nickname or "用户"
+        username = get_sender_nickname(event) or "用户"
         
         # 尝试调用签到卡片生成（如果可用）
         from .aslogin_v3 import as_login_v3
         # 获取用户头像 URL
-        avatar_url = await event_adapter.get_user_avatar_url(uevent)
+        avatar_url = get_user_avatar_url(event)
         image_msg = await as_login_v3(
             uid=uid,
             username=username,
@@ -62,139 +61,66 @@ async def handle_login(event: Event, bot: Bot):
             nick_flag=1 if username else 0,
             avatar_url=avatar_url
         )
-        await event_adapter.send_message(uevent, image_msg)
+        await login_cmd.send(image_msg)
 
-        
         login_limiter.start_cd(uid)
         
     except Exception as e:
         logger.error(f"签到失败: {e}")
         await bot.send(event, f"签到失败: {e}")
 
-'''
-async def simple_login(uid: int, username: str) -> str:
-    """简化版签到（不生成图片）"""
-    import time
-    import random
-    
-    current_time = time.localtime()
-    months = int(time.strftime("%m", current_time))
-    days = int(time.strftime("%d", current_time))
-    
-    # 检查是否已签到
-    last_login = money.get_user_money(uid, "last_login") or 0
-    today_flag = int(f'{months}0{days}')
-    
-    if last_login == today_flag:
-        # 已签到
-        logindays = money.get_user_money(uid, "logindays") or 0
-        return f"今天已经签过到了哦~\n已累计签到 {logindays} 天"
-    
-    # 执行签到
-    rp = random.randint(0, 100)
-    gold = 100 + rp
-    star_add = random.randint(100, 200)
-    
-    # 更新数据
-    money.increase_user_money(uid, "logindays", 1)
-    money.increase_user_money(uid, "starstone", rp * 5 + star_add)
-    money.increase_user_money(uid, "gold", gold)
-    money.set_user_money(uid, "last_login", today_flag)
-    money.set_user_money(uid, "rp", rp)
-    
-    logindays = money.get_user_money(uid, "logindays") or 1
-    
-    # 生成反馈
-    if rp < 20:
-        rp_msg = "运势很差呢..."
-    elif rp < 40:
-        rp_msg = "运势欠佳"
-    elif rp < 60:
-        rp_msg = "运势普通"
-    elif rp < 80:
-        rp_msg = "运势不错~"
-    elif rp < 100:
-        rp_msg = "运势旺盛！"
-    else:
-        rp_msg = "运势爆棚！！"
-    
-    return (
-        f"签到成功！\n"
-        f"今日人品: {rp} ({rp_msg})\n"
-        f"获得: ⭐{rp * 5 + star_add} 💰{gold}\n"
-        f"已累计签到 {logindays} 天"
-    )
-'''
 
 # ===== 钱包命令 =====
 purse_cmd = on_command("我的钱包", priority=5, block=True)
 
 
 @purse_cmd.handle()
-async def handle_purse(event: Event, bot: Bot):
+async def handle_purse(
+    event: Event, 
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
     """处理钱包查看命令"""
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        username = uevent.sender_nickname or "用户"
+        username = get_sender_nickname(event) or "用户"
         
         # 尝试调用钱包卡片生成
-
         from .aslogin_v3 import get_purse
         # 获取用户头像 URL
-        avatar_url = await event_adapter.get_user_avatar_url(uevent)
+        avatar_url = get_user_avatar_url(event)
         image_msg = await get_purse(uid=uid, user_name=username, avatar_url=avatar_url)
-        await event_adapter.send_message(uevent, image_msg)
+        await purse_cmd.send(image_msg)
 
-        
         purse_limiter.start_cd(uid)
         
     except Exception as e:
         logger.error(f"查看钱包失败: {e}")
         await bot.send(event, f"查看钱包失败: {e}")
 
-'''
-async def simple_purse(uid: int, username: str) -> str:
-    """简化版钱包查看"""
-    gold = money.get_user_money(uid, "gold") or 0
-    starstone = money.get_user_money(uid, "starstone") or 0
-    luckygold = money.get_user_money(uid, "luckygold") or 0
-    kirastone = money.get_user_money(uid, "kirastone") or 0
-    
-    return (
-        f"💼 {username} 的钱包\n"
-        f"━━━━━━━━━━\n"
-        f"💰 金币: {gold}\n"
-        f"⭐ 星星: {starstone}\n"
-        f"🍀 幸运币: {luckygold}\n"
-        f"💎 宝石: {kirastone}"
-    )
-'''
 
 # ===== 金币排行榜 =====
 rank_cmd = on_command("金币排行榜", priority=5, block=True)
 
 
 @rank_cmd.handle()
-async def handle_gold_ranking(event: Event, bot: Bot):
+async def handle_gold_ranking(
+    event: Event, 
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
     """处理金币排行榜命令"""
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        
         all_gold_data = money.get_all_user_money('gold')
         
         if not all_gold_data:
-            await event_adapter.send_message(uevent, "排行榜暂无数据。")
-            return
+            await rank_cmd.finish("排行榜暂无数据。")
         
         # 转换为列表并排序
         ranked_list = [(uid_key, gold) for uid_key, gold in all_gold_data.items()]
         ranked_list.sort(key=lambda x: x[1], reverse=True)
         
         if not ranked_list:
-            await event_adapter.send_message(uevent, "排行榜暂无数据。")
-            return
+            await rank_cmd.finish("排行榜暂无数据。")
         
         # 构建排行榜消息
         msg_parts = ["🏆 金币排行榜-TOP10 🏆"]
@@ -220,7 +146,7 @@ async def handle_gold_ranking(event: Event, bot: Bot):
         
         msg_parts.append(f"\n{user_rank_msg}")
         
-        await event_adapter.send_message(uevent, "\n".join(msg_parts), at_sender=True)
+        await rank_cmd.finish("\n".join(msg_parts), at_sender=True)
         
     except Exception as e:
         logger.error(f"获取排行榜失败: {e}")
@@ -234,12 +160,13 @@ upload_bg_cmd = on_command("上传签到图片", priority=5, block=True)
 UPLOAD_BG_COST = 0
 
 @upload_bg_cmd.handle()
-async def handle_upload_bg(event: Event, bot: Bot):
+async def handle_upload_bg(
+    event: Event, 
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
     """处理上传签到图片命令"""
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        
         # 从消息中提取图片URL
         image_url = None
         
@@ -254,14 +181,12 @@ async def handle_upload_bg(event: Event, bot: Bot):
             pass
         
         if not image_url:
-            await event_adapter.send_message(uevent, "请附带图片~", at_sender=True)
-            return
+            await upload_bg_cmd.finish("请附带图片~", at_sender=True)
         
         # 检查金币
         user_gold = money.get_user_money(uid, 'gold') or 0
         if user_gold < UPLOAD_BG_COST:
-            await event_adapter.send_message(uevent, "金币不足...", at_sender=True)
-            return
+            await upload_bg_cmd.finish("金币不足...", at_sender=True)
         
         # 下载并保存图片（使用uid作为文件名）
         from .aslogin_v3 import dl_save_image
@@ -274,7 +199,7 @@ async def handle_upload_bg(event: Event, bot: Bot):
         else:
             msg = "已上传图片~"
         
-        await event_adapter.send_message(uevent, msg, at_sender=True)
+        await upload_bg_cmd.finish(msg, at_sender=True)
         
     except Exception as e:
         logger.error(f"上传签到图片失败: {e}")
@@ -284,17 +209,19 @@ async def handle_upload_bg(event: Event, bot: Bot):
 remove_bg_cmd = on_command("清除签到图片", priority=5, block=True)
 
 @remove_bg_cmd.handle()
-async def handle_remove_bg(event: Event, bot: Bot):
+async def handle_remove_bg(
+    event: Event, 
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
     """处理清除签到图片命令"""
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        
         from .aslogin_v3 import del_custom_bg
         del_custom_bg(uid)
         
-        await event_adapter.send_message(uevent, "已恢复默认背景~", at_sender=True)
+        await remove_bg_cmd.finish("已恢复默认背景~", at_sender=True)
         
     except Exception as e:
         logger.error(f"清除签到图片失败: {e}")
+
 

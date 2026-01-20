@@ -17,11 +17,12 @@ from typing import Optional, Dict
 from nonebot import on_command, on_regex, get_driver, require
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Event, Bot
+from nonebot.params import Depends
 from nonebot import logger
 
-from ... import event_adapter
 from ... import money
 from ...koinori_config import config
+from ...tools import get_uid, send_group_forward_msg, build_forward_chain
 
 from .stock_utils import (
     set_db_path, init_stock_database,
@@ -85,14 +86,10 @@ help_chaogu = '''炒股游戏帮助：
 @stock_help_cmd.handle()
 async def handle_stock_help(event: Event, bot: Bot):
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        
         # 构建转发消息链
-        chain = []
-        await event_adapter.chain_reply(uevent, chain, help_chaogu)
-        
+        chain = await build_forward_chain(bot, [help_chaogu])
         # 发送转发消息
-        await event_adapter.send_group_forward_msg(uevent, chain)
+        await send_group_forward_msg(event, bot, chain)
     except Exception as e:
         logger.error(f"炒股帮助失败: {e}")
 
@@ -103,13 +100,10 @@ stock_list_cmd = on_command("股票列表", priority=5, block=True)
 @stock_list_cmd.handle()
 async def handle_stock_list(event: Event, bot: Bot):
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        
         stock_data = await get_stock_data()
         
         if not stock_data:
-            await event_adapter.send_message(uevent, "暂时无法获取股市数据，请稍后再试。")
-            return
+            await stock_list_cmd.finish("暂时无法获取股市数据，请稍后再试。")
         
         lines = ["📈 当前股市行情概览:"]
         
@@ -141,9 +135,8 @@ async def handle_stock_list(event: Event, bot: Bot):
                 lines.append(f"◽ {stock_name}: 价格未知 (初始: {initial_price:.2f})")
         
         # 使用转发消息发送
-        chain = []
-        await event_adapter.chain_reply(uevent, chain, "\n".join(lines))
-        await event_adapter.send_group_forward_msg(uevent, chain)
+        chain = await build_forward_chain(bot, ["\n".join(lines)])
+        await send_group_forward_msg(event, bot, chain)
         
     except Exception as e:
         logger.error(f"股票列表失败: {e}")
@@ -154,27 +147,25 @@ stock_trend_cmd = on_regex(r'^(.+股)走势$', priority=5, block=True)
 async def handle_stock_trend(event: Event, bot: Bot):
     chart_buf = b64_str = None
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
+        message_text = event.get_plaintext().strip()
         
         # 提取股票名称
         import re
-        match = re.match(r'^(.+股)走势$', uevent.message_text.strip())
+        match = re.match(r'^(.+股)走势$', message_text)
         if not match:
             return
         
         stock_name = match.group(1)
         
         if stock_name not in STOCKS:
-            await event_adapter.send_message(uevent, f"未知股票: {stock_name}。可用的股票有: {', '.join(STOCKS.keys())}")
-            return
+            await stock_trend_cmd.finish(f"未知股票: {stock_name}。可用的股票有: {', '.join(STOCKS.keys())}")
         
         stock_data = await get_stock_data()
         history = await get_stock_price_history(stock_name, stock_data)
         
         if not history:
             initial_price = stock_data[stock_name]["initial_price"]
-            await event_adapter.send_message(uevent, f"{stock_name} 暂时还没有价格历史记录。初始价格为 {initial_price:.2f} 金币。")
-            return
+            await stock_trend_cmd.finish(f"{stock_name} 暂时还没有价格历史记录。初始价格为 {initial_price:.2f} 金币。")
         
         # 在线程池中生成图表
         loop = asyncio.get_running_loop()
@@ -188,7 +179,7 @@ async def handle_stock_trend(event: Event, bot: Bot):
             image_bytes = chart_buf.getvalue()
             b64_str = base64.b64encode(image_bytes).decode()
             img_msg = MessageSegment.image(f"base64://{b64_str}")
-            await event_adapter.send_message(uevent, img_msg)
+            await stock_trend_cmd.send(img_msg)
         else:
             # 图表生成失败，发送文字版
             current_price = history[-1][1]
@@ -215,11 +206,11 @@ async def handle_stock_trend(event: Event, bot: Bot):
 
 （图表生成失败，显示文字版）"""
             
-            await event_adapter.send_message(uevent, msg)
+            await stock_trend_cmd.send(msg)
         
     except Exception as e:
         logger.error(f"股票走势失败: {e}")
-        await event_adapter.send_message(uevent, "生成图表时发生内部错误，请联系管理员。")
+        await stock_trend_cmd.send("生成图表时发生内部错误，请联系管理员。")
     finally:
         if chart_buf:
             chart_buf.close()
@@ -231,13 +222,12 @@ async def handle_stock_trend(event: Event, bot: Bot):
 buy_stock_cmd = on_regex(r'^买入\s*(.+股)\s*(\d+)$', priority=5, block=True)
 
 @buy_stock_cmd.handle()
-async def handle_buy_stock(event: Event, bot: Bot):
+async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
+        message_text = event.get_plaintext().strip()
         
         import re
-        match = re.match(r'^买入\s*(.+股)\s*(\d+)$', uevent.message_text.strip())
+        match = re.match(r'^买入\s*(.+股)\s*(\d+)$', message_text)
         if not match:
             return
         
@@ -245,12 +235,10 @@ async def handle_buy_stock(event: Event, bot: Bot):
         amount_to_buy = int(match.group(2))
         
         if amount_to_buy <= 0:
-            await event_adapter.send_message(uevent, "购买数量必须是正整数", at_sender=True)
-            return
+            await buy_stock_cmd.finish("购买数量必须是正整数", at_sender=True)
         
         if stock_name not in STOCKS:
-            await event_adapter.send_message(uevent, f"未知股票: {stock_name}", at_sender=True)
-            return
+            await buy_stock_cmd.finish(f"未知股票: {stock_name}", at_sender=True)
         
         # 检查持仓限制
         user_portfolio = await get_user_portfolio(uid)
@@ -260,22 +248,19 @@ async def handle_buy_stock(event: Event, bot: Bot):
         max_count = getattr(config, 'maxcount', 10000)
         
         if len(user_portfolio) >= max_type and stock_name not in user_portfolio:
-            await event_adapter.send_message(uevent, 
+            await buy_stock_cmd.finish(
                 f"每位用户最多持有{max_type}种不同股票，您已持有{len(user_portfolio)}种。", at_sender=True)
-            return
         
         if current_holding >= max_count:
-            await event_adapter.send_message(uevent, 
+            await buy_stock_cmd.finish(
                 f"每种股票持有上限为{max_count}股，请先卖出部分。", at_sender=True)
-            return
         
         if current_holding + amount_to_buy > max_count:
             amount_to_buy = max_count - current_holding
         
         current_price = await get_current_stock_price(stock_name)
         if current_price is None:
-            await event_adapter.send_message(uevent, f"{stock_name} 当前无法交易", at_sender=True)
-            return
+            await buy_stock_cmd.finish(f"{stock_name} 当前无法交易", at_sender=True)
         
         # 计算成本
         base_cost = current_price * amount_to_buy
@@ -284,15 +269,14 @@ async def handle_buy_stock(event: Event, bot: Bot):
         
         user_gold = money.get_user_money(uid, 'gold') or 0
         if user_gold < total_cost:
-            await event_adapter.send_message(uevent, 
+            await buy_stock_cmd.finish(
                 f"金币不足！购买{amount_to_buy}股{stock_name}需要{total_cost}金币"
                 f"（含{fee}手续费），您只有{user_gold}金币。", at_sender=True)
-            return
         
         # 执行购买
         if money.reduce_user_money(uid, 'gold', total_cost):
             if await update_user_portfolio(uid, stock_name, amount_to_buy):
-                await event_adapter.send_message(uevent, 
+                await buy_stock_cmd.finish(
                     f"✅ 购买成功！\n"
                     f"股票: {stock_name}\n"
                     f"数量: {amount_to_buy}股\n"
@@ -300,9 +284,9 @@ async def handle_buy_stock(event: Event, bot: Bot):
                     f"费用: {total_cost}金币（含{fee}手续费）", at_sender=True)
             else:
                 money.increase_user_money(uid, 'gold', total_cost)
-                await event_adapter.send_message(uevent, "购买失败，金币已退回。", at_sender=True)
+                await buy_stock_cmd.finish("购买失败，金币已退回。", at_sender=True)
         else:
-            await event_adapter.send_message(uevent, "购买失败，扣除金币时发生错误。", at_sender=True)
+            await buy_stock_cmd.finish("购买失败，扣除金币时发生错误。", at_sender=True)
         
     except Exception as e:
         logger.error(f"买入股票失败: {e}")
@@ -312,13 +296,12 @@ async def handle_buy_stock(event: Event, bot: Bot):
 sell_stock_cmd = on_regex(r'^卖出\s*(.+股)(?:\s*(\d+))?$', priority=5, block=True)
 
 @sell_stock_cmd.handle()
-async def handle_sell_stock(event: Event, bot: Bot):
+async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
+        message_text = event.get_plaintext().strip()
         
         import re
-        match = re.match(r'^卖出\s*(.+股)(?:\s*(\d+))?$', uevent.message_text.strip())
+        match = re.match(r'^卖出\s*(.+股)(?:\s*(\d+))?$', message_text)
         if not match:
             return
         
@@ -326,23 +309,20 @@ async def handle_sell_stock(event: Event, bot: Bot):
         amount_to_sell = int(match.group(2)) if match.group(2) else 9999
         
         if stock_name not in STOCKS:
-            await event_adapter.send_message(uevent, f"未知股票: {stock_name}", at_sender=True)
-            return
+            await sell_stock_cmd.finish(f"未知股票: {stock_name}", at_sender=True)
         
         user_portfolio = await get_user_portfolio(uid)
         current_holding = user_portfolio.get(stock_name, 0)
         
         if current_holding == 0:
-            await event_adapter.send_message(uevent, f"您没有持有{stock_name}", at_sender=True)
-            return
+            await sell_stock_cmd.finish(f"您没有持有{stock_name}", at_sender=True)
         
         if current_holding < amount_to_sell:
             amount_to_sell = current_holding
         
         current_price = await get_current_stock_price(stock_name)
         if current_price is None:
-            await event_adapter.send_message(uevent, f"{stock_name} 当前无法交易", at_sender=True)
-            return
+            await sell_stock_cmd.finish(f"{stock_name} 当前无法交易", at_sender=True)
         
         # 计算收入
         base_earnings = current_price * amount_to_sell
@@ -352,14 +332,14 @@ async def handle_sell_stock(event: Event, bot: Bot):
         # 执行出售
         if await update_user_portfolio(uid, stock_name, -amount_to_sell):
             money.increase_user_money(uid, 'gold', total_earnings)
-            await event_adapter.send_message(uevent, 
+            await sell_stock_cmd.finish(
                 f"✅ 卖出成功！\n"
                 f"股票: {stock_name}\n"
                 f"数量: {amount_to_sell}股\n"
                 f"单价: {current_price:.2f}金币\n"
                 f"收入: {total_earnings}金币（扣除{fee}手续费）", at_sender=True)
         else:
-            await event_adapter.send_message(uevent, "卖出失败，更新持仓时发生错误。", at_sender=True)
+            await sell_stock_cmd.finish("卖出失败，更新持仓时发生错误。", at_sender=True)
         
     except Exception as e:
         logger.error(f"卖出股票失败: {e}")
@@ -369,16 +349,12 @@ async def handle_sell_stock(event: Event, bot: Bot):
 my_portfolio_cmd = on_command("我的股仓", priority=5, block=True)
 
 @my_portfolio_cmd.handle()
-async def handle_my_portfolio(event: Event, bot: Bot):
+async def handle_my_portfolio(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        
         user_portfolio = await get_user_portfolio(uid)
         
         if not user_portfolio:
-            await event_adapter.send_message(uevent, "您的股仓是空的，快去买点股票吧！", at_sender=True)
-            return
+            await my_portfolio_cmd.finish("您的股仓是空的，快去买点股票吧！", at_sender=True)
         
         stock_data = await get_stock_data()
         
@@ -396,7 +372,7 @@ async def handle_my_portfolio(event: Event, bot: Bot):
         
         lines.append(f"\n📊 股仓总价值: {total_value:.2f}金币")
         
-        await event_adapter.send_message(uevent, "\n".join(lines), at_sender=True)
+        await my_portfolio_cmd.finish("\n".join(lines), at_sender=True)
         
     except Exception as e:
         logger.error(f"我的股仓失败: {e}")
@@ -408,8 +384,6 @@ market_events_cmd = on_command("市场动态", priority=5, block=True)
 @market_events_cmd.handle()
 async def handle_market_events(event: Event, bot: Bot):
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        
         stock_data = await get_stock_data()
         
         # 收集所有事件
@@ -422,8 +396,7 @@ async def handle_market_events(event: Event, bot: Bot):
         all_events.sort(key=lambda x: x["time"], reverse=True)
         
         if not all_events:
-            await event_adapter.send_message(uevent, "近期没有重大市场事件发生。")
-            return
+            await market_events_cmd.finish("近期没有重大市场事件发生。")
         
         recent_events = all_events[:5]
         
@@ -446,9 +419,8 @@ async def handle_market_events(event: Event, bot: Bot):
                     lines.append(f"【{event_time}】{evt.get('message', '未知事件')}")
         
         # 使用转发消息发送
-        chain = []
-        await event_adapter.chain_reply(uevent, chain, "\n\n".join(lines))
-        await event_adapter.send_group_forward_msg(uevent, chain)
+        chain = await build_forward_chain(bot, ["\n\n".join(lines)])
+        await send_group_forward_msg(event, bot, chain)
         
     except Exception as e:
         logger.error(f"市场动态失败: {e}")
@@ -465,6 +437,7 @@ async def hourly_price_update():
         
         changed = False
         event_triggered = False
+        affected_stocks = []
         
         # 获取最后事件时间
         try:

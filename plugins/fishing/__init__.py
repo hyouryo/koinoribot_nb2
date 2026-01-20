@@ -17,7 +17,7 @@ from nonebot.matcher import Matcher
 from nonebot.params import CommandArg, Depends
 from nonebot.plugin import PluginMetadata
 
-from ... import event_adapter
+from ...tools import send_group_forward_msg, build_forward_chain
 from ...koinori_config import config
 from ...money import UserWallet, wallet_manager
 from ...tools import get_group_id, get_uid
@@ -98,15 +98,10 @@ help_2 = """
 @fish_help_cmd.handle()
 async def handle_fish_help(event: Event, bot: Bot):
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-
         # 构建转发消息链
-        chain = []
-        await event_adapter.chain_reply(uevent, chain, help_1)
-        await event_adapter.chain_reply(uevent, chain, help_2)
-
+        chain = await build_forward_chain(bot, [help_1, help_2])
         # 发送转发消息
-        await event_adapter.send_group_forward_msg(uevent, chain)
+        await send_group_forward_msg(event, bot, chain)
     except Exception as e:
         logger.error(f"钓鱼帮助失败: {e}")
 

@@ -13,11 +13,11 @@ from nonebot import on_command
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Event, Bot, Message
 from nonebot import logger
-from nonebot.params import CommandArg
+from nonebot.params import CommandArg, Depends
 
-from ... import event_adapter
 from ... import money
 from ...utils import FreqLimiter, get_double_mean_money
+from ...tools import get_uid, get_group_id_optional, get_sender_nickname
 
 __plugin_meta__ = PluginMetadata(
     name="hongbao",
@@ -84,16 +84,18 @@ fa_hongbao = on_command("发红包", priority=5, block=True)
 
 
 @fa_hongbao.handle()
-async def handle_fa_hongbao(event: Event, bot: Bot, args: Message = CommandArg()):
+async def handle_fa_hongbao(
+    event: Event, 
+    bot: Bot, 
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid)
+):
     """处理发红包命令"""
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        group_id = uevent.group_id
+        group_id = get_group_id_optional(event)
         
         if not group_id:
-            await event_adapter.send_message(uevent, "红包功能仅支持群聊")
-            return
+            await fa_hongbao.finish("红包功能仅支持群聊")
         
         # 检查是否有进行中的红包
         existing = get_session(group_id)
@@ -105,42 +107,35 @@ async def handle_fa_hongbao(event: Event, bot: Bot, args: Message = CommandArg()
                     money.increase_user_money(existing.owner_uid, 'gold', return_amount)
                 close_session(group_id)
             else:
-                await event_adapter.send_message(uevent, "当前还有没领完的金币红包~")
-                return
+                await fa_hongbao.finish("当前还有没领完的金币红包~")
         
         # 频率限制
         if not freq.check(uid):
-            await event_adapter.send_message(uevent, "十秒钟之内只能发一个红包")
-            return
+            await fa_hongbao.finish("十秒钟之内只能发一个红包")
         
         # 解析参数
         message = args.extract_plain_text()
         parts = message.split()
         
         if not parts:
-            await event_adapter.send_message(uevent, "用法: 发红包 金额 [份数]\n例如: 发红包 1000 5")
-            return
+            await fa_hongbao.finish("用法: 发红包 金额 [份数]\n例如: 发红包 1000 5")
         
         try:
             amount = int(parts[0])
             num_packets = int(parts[1]) if len(parts) > 1 else 5
         except ValueError:
-            await event_adapter.send_message(uevent, "金额和份数必须是数字")
-            return
+            await fa_hongbao.finish("金额和份数必须是数字")
         
         if num_packets <= 2:
-            await event_adapter.send_message(uevent, "红包份数至少要3份")
-            return
+            await fa_hongbao.finish("红包份数至少要3份")
         
         if amount <= num_packets:
-            await event_adapter.send_message(uevent, "金额太少啦，每份红包至少要1金币")
-            return
+            await fa_hongbao.finish("金额太少啦，每份红包至少要1金币")
         
         # 检查用户金币
         user_gold = money.get_user_money(uid, 'gold') or 0
         if amount > user_gold:
-            await event_adapter.send_message(uevent, f"金币不足！你只有 {user_gold} 金币")
-            return
+            await fa_hongbao.finish(f"金币不足！你只有 {user_gold} 金币")
         
         # 扣除金币
         money.reduce_user_money(uid, 'gold', amount)
@@ -159,9 +154,8 @@ async def handle_fa_hongbao(event: Event, bot: Bot, args: Message = CommandArg()
         
         freq.start_cd(uid)
         
-        nickname = uevent.sender_nickname or f"用户{uid}"
-        await event_adapter.send_message(
-            uevent, 
+        nickname = get_sender_nickname(event) or f"用户{uid}"
+        await fa_hongbao.finish(
             f"{nickname} 发了一个 {amount} 金币的红包，共 {num_packets} 份~\n发送「抢红包」来领取！"
         )
         
@@ -175,12 +169,14 @@ qiang_hongbao = on_command("抢红包", priority=5, block=True)
 
 
 @qiang_hongbao.handle()
-async def handle_qiang_hongbao(event: Event, bot: Bot):
+async def handle_qiang_hongbao(
+    event: Event, 
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
     """处理抢红包命令"""
     try:
-        uevent = await event_adapter.adapt_event(event, bot)
-        uid = uevent.uid
-        group_id = uevent.group_id
+        group_id = get_group_id_optional(event)
         
         if not group_id:
             return
@@ -191,8 +187,7 @@ async def handle_qiang_hongbao(event: Event, bot: Bot):
         
         # 检查是否已抢过
         if uid in session.claimed_uids:
-            await event_adapter.send_message(uevent, "你已经抢过红包了！", at_sender=True)
-            return
+            await qiang_hongbao.finish("你已经抢过红包了！", at_sender=True)
         
         # 抢红包
         if session.packets:
@@ -200,12 +195,12 @@ async def handle_qiang_hongbao(event: Event, bot: Bot):
             session.claimed_uids.append(uid)
             money.increase_user_money(uid, 'gold', amount)
             
-            await event_adapter.send_message(uevent, f"恭喜抢到 {amount} 金币~", at_sender=True)
+            await qiang_hongbao.send(f"恭喜抢到 {amount} 金币~", at_sender=True)
             
             # 检查是否抢完
             if not session.packets:
                 close_session(group_id)
-                await event_adapter.send_message(uevent, "红包领完啦~")
+                await qiang_hongbao.send("红包领完啦~")
         
     except Exception as e:
         logger.error(f"抢红包失败: {e}")
