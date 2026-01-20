@@ -7,10 +7,9 @@ UID 统一管理模块
 - 预留手动绑定功能（后续实现）
 """
 
-import os
 import sqlite3
-from typing import Optional, Literal
 from datetime import datetime
+from typing import Literal, Optional
 
 # 数据库路径
 _db_path: Optional[str] = None
@@ -20,7 +19,7 @@ _db_initialized = False
 UID_START = 10001
 
 
-def set_database_path(path: str):
+def set_database_path(path: str) -> None:
     """设置数据库路径"""
     global _db_path, _db_initialized
     _db_path = path
