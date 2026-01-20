@@ -15,9 +15,10 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict
 
 from nonebot import on_command, on_regex, get_driver, require
+from nonebot.exception import FinishedException
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Event, Bot
-from nonebot.params import Depends
+from nonebot.params import Depends, RegexGroup
 from nonebot import logger
 
 from ... import money
@@ -138,34 +139,48 @@ async def handle_stock_list(event: Event, bot: Bot):
 stock_trend_cmd = on_regex(r'^(.+股)走势$', priority=5, block=True)
 
 @stock_trend_cmd.handle()
-async def handle_stock_trend(event: Event, bot: Bot):
+async def handle_stock_trend(event: Event, bot: Bot, groups: tuple = RegexGroup()):
     chart_buf = b64_str = None
     try:
-        message_text = event.get_plaintext().strip()
+        # 使用 RegexGroup 获取匹配到的股票名称
+        if not groups or len(groups) < 1:
+            logger.warning("股票走势: 正则匹配组为空")
+            await stock_trend_cmd.finish("无法解析股票名称，请检查指令格式。")
         
-        # 提取股票名称
-        import re
-        match = re.match(r'^(.+股)走势$', message_text)
-        if not match:
-            return
-        
-        stock_name = match.group(1)
+        stock_name = groups[0]
+        logger.info(f"股票走势: 开始处理 {stock_name}")
         
         if stock_name not in STOCKS:
             await stock_trend_cmd.finish(f"未知股票: {stock_name}。可用的股票有: {', '.join(STOCKS.keys())}")
         
         stock_data = await get_stock_data()
+        logger.info(f"股票走势: 已获取股票数据")
+        
         history = await get_stock_price_history(stock_name, stock_data)
+        logger.info(f"股票走势: {stock_name} 历史记录条数={len(history) if history else 0}")
         
         if not history:
             initial_price = stock_data[stock_name]["initial_price"]
             await stock_trend_cmd.finish(f"{stock_name} 暂时还没有价格历史记录。初始价格为 {initial_price:.2f} 金币。")
         
         # 在线程池中生成图表
+        logger.info(f"股票走势: 开始生成图表")
         loop = asyncio.get_running_loop()
-        chart_buf = await loop.run_in_executor(
-            None, generate_stock_chart, stock_name, history, stock_data
-        )
+        try:
+            chart_buf = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, generate_stock_chart, stock_name, history, stock_data
+                ),
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"股票走势: 图表生成超时 (10s)")
+            chart_buf = None
+        except Exception as e:
+            logger.error(f"股票走势: 图表生成出错: {e}")
+            chart_buf = None
+        
+        logger.info(f"股票走势: 图表生成完成，结果={chart_buf is not None}")
         
         if chart_buf:
             # 转换为 Base64 并发送图片
@@ -173,7 +188,8 @@ async def handle_stock_trend(event: Event, bot: Bot):
             image_bytes = chart_buf.getvalue()
             b64_str = base64.b64encode(image_bytes).decode()
             img_msg = MessageSegment.image(f"base64://{b64_str}")
-            await stock_trend_cmd.send(img_msg)
+            logger.info(f"股票走势: 发送图片")
+            await stock_trend_cmd.finish(img_msg)
         else:
             # 图表生成失败，发送文字版
             current_price = history[-1][1]
@@ -200,7 +216,14 @@ async def handle_stock_trend(event: Event, bot: Bot):
 
 （图表生成失败，显示文字版）"""
             
-            await stock_trend_cmd.send(msg)
+            await stock_trend_cmd.finish(msg)
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"股票走势处理异常: {e}")
+        import traceback
+        traceback.print_exc()
+        await stock_trend_cmd.finish(f"处理股票走势时发生错误: {e}")
     finally:
         if chart_buf:
             chart_buf.close()
@@ -212,16 +235,13 @@ async def handle_stock_trend(event: Event, bot: Bot):
 buy_stock_cmd = on_regex(r'^买入\s*(.+股)\s*(\d+)$', priority=5, block=True)
 
 @buy_stock_cmd.handle()
-async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid)):
-    message_text = event.get_plaintext().strip()
+async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    # 使用 RegexGroup 获取匹配到的参数
+    if not groups or len(groups) < 2:
+        await buy_stock_cmd.finish("无法解析购买指令，请检查格式。", at_sender=True)
     
-    import re
-    match = re.match(r'^买入\s*(.+股)\s*(\d+)$', message_text)
-    if not match:
-        return
-    
-    stock_name = match.group(1)
-    amount_to_buy = int(match.group(2))
+    stock_name = groups[0]
+    amount_to_buy = int(groups[1])
     
     if amount_to_buy <= 0:
         await buy_stock_cmd.finish("购买数量必须是正整数", at_sender=True)
@@ -282,16 +302,13 @@ async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid)):
 sell_stock_cmd = on_regex(r'^卖出\s*(.+股)(?:\s*(\d+))?$', priority=5, block=True)
 
 @sell_stock_cmd.handle()
-async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid)):
-    message_text = event.get_plaintext().strip()
+async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    # 使用 RegexGroup 获取匹配到的参数
+    if not groups or len(groups) < 1:
+        await sell_stock_cmd.finish("无法解析卖出指令，请检查格式。", at_sender=True)
     
-    import re
-    match = re.match(r'^卖出\s*(.+股)(?:\s*(\d+))?$', message_text)
-    if not match:
-        return
-    
-    stock_name = match.group(1)
-    amount_to_sell = int(match.group(2)) if match.group(2) else 9999
+    stock_name = groups[0]
+    amount_to_sell = int(groups[1]) if groups[1] else 9999
     
     if stock_name not in STOCKS:
         await sell_stock_cmd.finish(f"未知股票: {stock_name}", at_sender=True)

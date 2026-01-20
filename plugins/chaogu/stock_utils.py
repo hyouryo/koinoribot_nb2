@@ -13,9 +13,13 @@ import io
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 
-# Plotly 图表库
-import plotly.graph_objects as go
-import plotly.io as pio
+# Matplotlib 用于替代 Plotly/Kaleido
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+from nonebot import logger
 
 
 # 历史数据保留时长
@@ -370,8 +374,8 @@ async def get_stock_price_history(stock_name: str, stock_data: dict = None) -> L
 
 def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict = None) -> Optional[io.BytesIO]:
     """
-    使用 Plotly 生成股票历史价格图表的 PNG 图片。
-    此函数经过内存管理优化，应在线程池中运行。
+    使用 Matplotlib 生成股票历史价格图表的 PNG 图片。
+    改用 Matplotlib 以避免 Kaleido 在 Windows 上的卡死问题。
     
     Args:
         stock_name: 股票名称
@@ -384,101 +388,86 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
     if not history:
         return None
 
-    fig = None
-    timestamps = prices = dates = img_bytes = buf = None
-
     try:
+        logger.info(f"[stock_utils] Generating chart for {stock_name} using Matplotlib...")
+        
         timestamps, prices = zip(*history)
         dates = [datetime.fromtimestamp(ts) for ts in timestamps]
-
-        # 计算时间范围（过去24小时，并延长）
+        
+        current_price = history[-1][1]
+        initial_price = STOCKS.get(stock_name, 0)
+        
+        # 计算时间范围
         now = datetime.now()
         start_time = now - timedelta(hours=HISTORY_DURATION_HOURS)
         end_time = now + timedelta(hours=3)
 
-        # 创建 Plotly Figure
-        fig = go.Figure()
+        # 创建 Figure 和 Axes 对象 (避免使用 plt.xxx 的全局状态，线程安全)
+        fig = Figure(figsize=(10, 6), dpi=100)
+        canvas = FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
 
-        # 添加价格折线图
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=prices,
-            mode='lines+markers',
-            marker=dict(size=4),
-            line=dict(shape='linear'),
-            name='价格'
-        ))
+        # 绘制价格折线
+        ax.plot(dates, prices, marker='o', markersize=4, linestyle='-', label='价格')
 
-        # 如果有事件，在图表上标记
+        # 设置中文字体 (尝试寻找可用中文字体，防止乱码)
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False
+
+        # 标记事件
         if stock_data and stock_name in stock_data and "events" in stock_data[stock_name]:
             for event in stock_data[stock_name]["events"]:
                 event_time = datetime.fromtimestamp(event["time"])
-                # 只显示指定时间范围内的事件
                 if event_time >= start_time:
-                    fig.add_vline(
-                        x=event_time,
-                        line_width=1,
-                        line_dash="dash",
-                        line_color="orange",
-                        opacity=0.7
-                    )
-                    fig.add_annotation(
-                        x=event_time,
-                        y=event["old_price"],
-                        text=event["type"],
-                        showarrow=True,
-                        arrowhead=1,
-                        ax=0,
-                        ay=-40
+                    # 垂直虚线
+                    ax.axvline(x=event_time, color='orange', linestyle='--', alpha=0.7, linewidth=1)
+                    # 标注文本
+                    ax.annotate(
+                        event["type"],
+                        xy=(event_time, event["old_price"]),
+                        xytext=(0, -30),
+                        textcoords='offset points',
+                        arrowprops=dict(facecolor='black', arrowstyle='->'),
+                        ha='center',
+                        fontsize=9
                     )
 
-        current_price = history[-1][1]
-        initial_price = STOCKS.get(stock_name, 0)
-
-        # 更新图表布局
-        fig.update_layout(
-            title=f'{stock_name} 过去{HISTORY_DURATION_HOURS}小时价格走势 (初始价格: {initial_price:.2f}金币)',
-            xaxis_title='时间',
-            yaxis_title='价格 (金币)',
-            xaxis=dict(
-                tickformat='%H:%M',
-                range=[start_time, end_time]
-            ),
-            hovermode='x unified',
-            template='plotly_white',
-            margin=dict(l=50, r=50, t=80, b=50)
+        # 设置标题和标签
+        ax.set_title(
+            f'{stock_name} 过去{HISTORY_DURATION_HOURS}小时价格走势\n(初始价格: {initial_price:.2f}金币 最高上涨至初始价格的2倍)',
+            fontsize=12
         )
+        ax.set_xlabel('时间')
+        ax.set_ylabel('价格 (金币)')
+
+        # 设置X轴时间格式
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_xlim(start_time, end_time)
         
-        # 添加当前价格标注
-        fig.add_annotation(
-            x=dates[-1],
-            y=current_price,
-            xref="x",
-            yref="y",
-            text=f'当前: {current_price:.2f}',
-            showarrow=True,
-            arrowhead=1,
-            ax=30,
-            ay=-30,
-            xanchor='left'
+        # 网格
+        ax.grid(True, linestyle=':', alpha=0.6)
+
+        # 标注当前价格
+        ax.annotate(
+            f'当前: {current_price:.2f}',
+            xy=(dates[-1], current_price),
+            xytext=(30, -30),
+            textcoords='offset points',
+            arrowprops=dict(facecolor='black', arrowstyle='->'),
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", alpha=0.8)
         )
 
-        # 渲染图片
-        img_bytes = pio.to_image(fig, format='png', scale=2)
-        buf = io.BytesIO(img_bytes)
+        # 渲染到内存
+        buf = io.BytesIO()
+        canvas.print_png(buf)
         buf.seek(0)
+        
+        logger.info(f"[stock_utils] Chart generated successfully")
         return buf
 
     except Exception as e:
-        print(f"Error generating Plotly chart image for {stock_name}: {e}")
+        logger.error(f"Error generating Matplotlib chart for {stock_name}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
-    finally:
-        if fig:
-            # 清空Figure对象内部数据，帮助GC回收
-            fig.data = []
-            fig.layout = {}
-            fig.frames = []
-            del fig
-        
-        del timestamps, prices, dates, img_bytes
 
