@@ -33,6 +33,8 @@ class DatabaseManager:
             raise RuntimeError("数据库路径未设置")
         conn = sqlite3.connect(cls._db_path)
         conn.row_factory = sqlite3.Row
+        # 启用外键约束
+        conn.execute("PRAGMA foreign_keys = ON")
         return conn
     
     @classmethod
@@ -50,7 +52,8 @@ class DatabaseManager:
                 fish_data TEXT NOT NULL,
                 statis_data TEXT NOT NULL,
                 rod_data TEXT NOT NULL,
-                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
             )
         ''')
         
@@ -60,9 +63,11 @@ class DatabaseManager:
                 date_str TEXT NOT NULL,
                 count INTEGER NOT NULL DEFAULT 0,
                 limit_count INTEGER NOT NULL DEFAULT 0,
-                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
             )
         ''')
+
         
         conn.commit()
         conn.close()

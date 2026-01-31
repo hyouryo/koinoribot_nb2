@@ -24,7 +24,7 @@ _db_initialized = False
 
 # 默认初始资产
 DEFAULT_ASSETS = {
-    "gold": 300000000,  # 金币
+    "gold": 3000,  # 金币
     "luckygold": 0,  # 幸运币
     "starstone": 12500,  # 星星
     "kirastone": 0,  # 羽毛石/宝石
@@ -67,6 +67,8 @@ def _get_connection() -> sqlite3.Connection:
     """获取数据库连接"""
     conn = sqlite3.connect(get_database_path())
     conn.row_factory = sqlite3.Row
+    # 启用外键约束
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -91,7 +93,8 @@ def init_money_database():
             logindays INTEGER NOT NULL DEFAULT 0,
             exgacha INTEGER NOT NULL DEFAULT 0,
             goodluck INTEGER NOT NULL DEFAULT 0,
-            badluck INTEGER NOT NULL DEFAULT 0
+            badluck INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
         )
     """)
 

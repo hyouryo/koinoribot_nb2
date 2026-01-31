@@ -37,6 +37,8 @@ def _get_connection() -> sqlite3.Connection:
     """获取数据库连接"""
     conn = sqlite3.connect(get_database_path())
     conn.row_factory = sqlite3.Row
+    # 启用外键约束
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 

@@ -31,6 +31,8 @@ def _get_connection() -> sqlite3.Connection:
         raise RuntimeError("数据库路径未设置")
     conn = sqlite3.connect(_db_path)
     conn.row_factory = sqlite3.Row
+    # 启用外键约束
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -47,7 +49,8 @@ def init_pet_database():
         CREATE TABLE IF NOT EXISTS user_pets (
             uid INTEGER PRIMARY KEY,
             pet_data TEXT NOT NULL,
-            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
         )
     ''')
     
@@ -55,9 +58,11 @@ def init_pet_database():
         CREATE TABLE IF NOT EXISTS user_items (
             uid INTEGER PRIMARY KEY,
             items_data TEXT NOT NULL,
-            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
         )
     ''')
+
     
     conn.commit()
     conn.close()
