@@ -2,7 +2,7 @@
 炒股插件 - chaogu
 
 完整迁移自旧版 koinoribot
-功能：股票交易、行情查看、持仓管理、市场事件
+功能：股票交易、行情查看、持仓管理、市场事件、幸运游戏
 """
 
 import math
@@ -14,7 +14,7 @@ import base64
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 
-from nonebot import on_command, on_regex, get_driver, require
+from nonebot import on_command, on_regex, on_fullmatch, get_driver, require
 from nonebot.exception import FinishedException
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Event, Bot
@@ -32,19 +32,37 @@ from .stock_utils import (
     get_user_portfolios, save_user_portfolios,
     get_user_portfolio, update_user_portfolio,
     get_current_stock_price, get_stock_price_history,
-    generate_stock_chart
+    generate_stock_chart,
+    # 豪赌相关
+    update_gamble_record, get_all_gamble_record, get_user_gamble_record,
+    check_daily_gamble_limit, record_gamble_today,
+    # 转盘相关
+    MAX_TURNS_PER_DAY, check_turntable_limit, record_turntable_spin,
+    # 低保相关
+    check_daily_prek, record_daily_prek
 )
+
+# uid_manager 用于 QQ号转UID
+from ... import uid_manager
+# 宠物相关
+from ..chongwu.pet import get_user_pets, add_user_item
 
 __plugin_meta__ = PluginMetadata(
     name="chaogu",
-    description="股票市场系统 - 完整版",
-    usage="股票列表 / 买入 / 卖出 / 我的股仓 等",
+    description="股票市场系统 - 完整版（含幸运游戏、转盘、低保）",
+    usage="股票列表 / 买入 / 卖出 / 我的股仓 / 一场豪赌 / 幸运大转盘 / 领低保 等",
 )
 
 # 事件触发概率配置
 EVENT_PROBABILITY = 0.9999
 EVENT_COOLDOWN = 3500
 
+# ===== 豪赌游戏配置 =====
+MAX_GAMBLE_ROUNDS = 5
+
+# 赌博状态管理 (内存中)
+# key: uid, value: {'round': int, 'confirmed': bool, 'active': bool, 'win': float, 'start_gold': int, 'gold': int}
+gambling_sessions: Dict[int, dict] = {}
 
 # ===== 股票帮助 =====
 stock_help_cmd = on_command("股票帮助", priority=5, block=True)
@@ -236,6 +254,10 @@ buy_stock_cmd = on_regex(r'^买入\s*(.+股)\s*(\d+)$', priority=5, block=True)
 
 @buy_stock_cmd.handle()
 async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    # 检查是否在赌博中
+    if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
+        await buy_stock_cmd.finish("⚠️ 你正在进行一场豪赌，无法进行股票交易。请先完成赌局或'见好就收'。", at_sender=True)
+    
     # 使用 RegexGroup 获取匹配到的参数
     if not groups or len(groups) < 2:
         await buy_stock_cmd.finish("无法解析购买指令，请检查格式。", at_sender=True)
@@ -303,6 +325,10 @@ sell_stock_cmd = on_regex(r'^卖出\s*(.+股)(?:\s*(\d+))?$', priority=5, block=
 
 @sell_stock_cmd.handle()
 async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    # 检查是否在赌博中
+    if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
+        await sell_stock_cmd.finish("⚠️ 你正在进行一场豪赌，无法进行股票交易。请先完成赌局或'见好就收'。", at_sender=True)
+    
     # 使用 RegexGroup 获取匹配到的参数
     if not groups or len(groups) < 1:
         await sell_stock_cmd.finish("无法解析卖出指令，请检查格式。", at_sender=True)
@@ -551,3 +577,664 @@ try:
     logger.info("股价更新定时任务已注册")
 except Exception as e:
     logger.warning(f"定时任务注册失败: {e}，需要手动安装 nonebot_plugin_apscheduler")
+
+
+# ===== 幸运游戏（一场豪赌）=====
+
+def get_gamble_win_probability(gold: int, uid: int) -> float:
+    """根据金币数量计算获胜概率"""
+    if gold < 10000:
+        win = 0.90
+    elif gold < 50000:
+        win = 0.70
+    elif gold < 100000:
+        win = 0.60
+    elif gold < 1000000:
+        win = 0.50
+    elif gold < 10000000:
+        win = 0.30
+    else:
+        win = 0.10
+    gambling_sessions[uid]['win'] = win
+    return win
+
+
+async def perform_gamble_round(uid: int) -> dict:
+    """执行一轮赌博并更新虚拟金币"""
+    old_gold = gambling_sessions[uid]['gold']
+    if old_gold is None or old_gold <= 0:
+        return {"success": False, "message": "你没有金币可以用来豪赌。"}
+    
+    # 计算胜率
+    get_gamble_win_probability(old_gold, uid)
+    win_probability = gambling_sessions[uid]['win']
+    
+    # 超级用户加成（可选，保持原逻辑）
+    superusers = getattr(config, 'superusers', [])
+    if uid in superusers:
+        win_probability += 0.5
+    
+    win = random.random() < win_probability
+    
+    # 计算新金币
+    if win:
+        new_gold = int(old_gold * 2)
+        gambling_sessions[uid]['gold'] = new_gold
+        outcome = "胜利"
+        multiplier = 2
+    else:
+        new_gold = max(1, int(old_gold * 0.01))
+        gambling_sessions[uid]['gold'] = new_gold
+        outcome = "失败"
+        multiplier = 0.01
+    
+    # 更新胜率
+    get_gamble_win_probability(new_gold, uid)
+    
+    return {
+        "success": True,
+        "outcome": outcome,
+        "old_gold": old_gold,
+        "new_gold": new_gold,
+        "multiplier": multiplier
+    }
+
+
+async def gold_change_record(uid: int, start_gold: int, final_gold: int) -> str:
+    """计算并应用金币变化，返回结果消息"""
+    change = final_gold - start_gold
+    await update_gamble_record(uid, change)
+    if change > 0:
+        money.increase_user_money(uid, 'gold', change)
+        record = f"\n最终金币变化：+{change}"
+    else:
+        change = change * -1
+        money.reduce_user_money(uid, 'gold', change)
+        record = f"\n最终金币变化：-{change}"
+    return record
+
+
+# ===== 一场豪赌 =====
+gamble_start_cmd = on_fullmatch("一场豪赌", priority=5, block=True)
+
+@gamble_start_cmd.handle()
+async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    # 检查是否已在赌局中
+    if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
+        await gamble_start_cmd.finish("你正在进行一场豪赌，请先完成或使用 '见好就收' 结束当前赌局。", at_sender=True)
+    
+    # 检查每日限制
+    superusers = getattr(config, 'superusers', [])
+    if not await check_daily_gamble_limit(uid) and uid not in superusers:
+        await gamble_start_cmd.finish("你今天已经赌过了，明天再来吧！人生的大起大落可经不起天天折腾哦。", at_sender=True)
+    
+    # 获取当前金币
+    gold = money.get_user_money(uid, 'gold') or 0
+    luckygold = money.get_user_money(uid, 'luckygold') or 0
+    
+    if gold <= 0:
+        await gamble_start_cmd.finish("欠债/失信用户，禁止游戏。", at_sender=True)
+    
+    # 初始化会话状态
+    gambling_sessions[uid] = {
+        'round': 0,
+        'confirmed': False,
+        'active': False,
+        'win': 0,
+        'start_gold': gold,
+        'gold': gold
+    }
+    
+    get_gamble_win_probability(gold, uid)
+    win = gambling_sessions[uid]['win'] * 100
+    
+    rules = f"""\n🎲 一场豪赌 规则 🎲：
+1. 连续{MAX_GAMBLE_ROUNDS}轮豪赌，每一轮消耗1枚幸运币，你所持有的【全部金币】都有几率翻倍，或者骤减。
+2. 你可以在任何一轮结束后选择 '见好就收' 带着当前金币离场。
+3. 若任意一轮失败，则立即结束并离场。
+【警告】：当前金币已被记录，豪赌过程中，通过豪赌以外的途径增减的金币，将不影响游戏结果。
+你当前持有 {gold} 枚金币
+你当前持有 {luckygold} 枚幸运币
+当前获胜概率: {win}%
+发送 确认 继续。
+发送 算了 取消。"""
+    await gamble_start_cmd.finish(rules, at_sender=True)
+
+
+# ===== 确认开始豪赌 =====
+gamble_confirm_cmd = on_fullmatch("确认", priority=5, block=True)
+
+@gamble_confirm_cmd.handle()
+async def handle_confirm_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    # 检查用户是否处于待确认状态
+    if uid not in gambling_sessions or gambling_sessions[uid].get('confirmed', False):
+        return  # 不在等待确认状态，忽略
+    
+    gold = money.get_user_money(uid, 'gold') or 0
+    luckygold = money.get_user_money(uid, 'luckygold') or 0
+    start_gold = gambling_sessions[uid]['start_gold']
+    
+    if gold != start_gold:
+        await gamble_confirm_cmd.finish(f"\n检测到钱包金币发生了改变: \n{start_gold}金币 → {gold}金币\n本次会话作废，请重新开局。", at_sender=True)
+        del gambling_sessions[uid]
+    
+    if luckygold < 1:
+        del gambling_sessions[uid]
+        await gamble_confirm_cmd.finish("\n你没有足够的幸运币参与豪赌。", at_sender=True)
+    
+    money.reduce_user_money(uid, 'luckygold', 1)
+    
+    # 标记确认，激活会话
+    gambling_sessions[uid]['confirmed'] = True
+    gambling_sessions[uid]['active'] = True
+    gambling_sessions[uid]['round'] = 1
+    
+    await record_gamble_today(uid)
+    
+    result = await perform_gamble_round(uid)
+    
+    if not result["success"]:
+        del gambling_sessions[uid]
+        await gamble_confirm_cmd.finish(f"豪赌失败：{result['message']}", at_sender=True)
+    
+    win = gambling_sessions[uid]['win'] * 100
+    
+    if result['outcome'] == "胜利":
+        message = f"""\n第1轮结果:【{result['outcome']}】
+金币变化：{result['old_gold']} -> {result['new_gold']} (x{result['multiplier']})"""
+        message += f"\n发送 '继续' 进行第 {gambling_sessions[uid]['round'] + 1} 轮，或发送 '见好就收' 离场。"
+        message += f"\n当前获胜概率: {win}%"
+        await gamble_confirm_cmd.finish(message, at_sender=True)
+    else:
+        start_gold = gambling_sessions[uid]['start_gold']
+        final_gold = gambling_sessions[uid]['gold']
+        record = await gold_change_record(uid, start_gold, final_gold)
+        del gambling_sessions[uid]
+        message = f"""\n第1轮结果:【{result['outcome']}】
+金币变化：{result['old_gold']} -> {result['new_gold']} (x{result['multiplier']})"""
+        message += f"\n\n本局失败，已强制离场。"
+        message += record
+        await gamble_confirm_cmd.finish(message, at_sender=True)
+
+
+# ===== 继续豪赌 =====
+gamble_continue_cmd = on_fullmatch("继续", priority=5, block=True)
+
+@gamble_continue_cmd.handle()
+async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    # 检查用户是否在活跃的赌局中
+    if uid not in gambling_sessions or not gambling_sessions[uid].get('active', False):
+        return  # 不在赌局中，忽略
+    
+    current_round = gambling_sessions[uid]['round']
+    luckygold = money.get_user_money(uid, 'luckygold') or 0
+    
+    if luckygold < 1:
+        await gamble_continue_cmd.finish("\n你没有足够的幸运币继续。发送 见好就收 可以退出赌局~", at_sender=True)
+    
+    money.reduce_user_money(uid, 'luckygold', 1)
+    
+    # 进入下一轮
+    next_round = current_round + 1
+    gambling_sessions[uid]['round'] = next_round
+    
+    result = await perform_gamble_round(uid)
+    
+    if not result["success"]:
+        del gambling_sessions[uid]
+        await gamble_continue_cmd.finish(f"豪赌失败：{result['message']}", at_sender=True)
+    
+    win = gambling_sessions[uid]['win'] * 100
+    
+    message = f"""\n第 {next_round} 轮结果：【{result['outcome']}】
+金币变化：{result['old_gold']} -> {result['new_gold']} (x{result['multiplier']})"""
+    
+    if gambling_sessions[uid]['round'] >= MAX_GAMBLE_ROUNDS:
+        message += f"\n你已完成全部 {MAX_GAMBLE_ROUNDS} 轮豪赌，游戏结束！"
+        start_gold = gambling_sessions[uid]['start_gold']
+        final_gold = gambling_sessions[uid]['gold']
+        record = await gold_change_record(uid, start_gold, final_gold)
+        message += record
+        del gambling_sessions[uid]
+    elif result['outcome'] == "胜利":
+        message += f"\n发送 '继续' 进行第 {gambling_sessions[uid]['round'] + 1} 轮，或发送 '见好就收' 离场。"
+        message += f"\n当前获胜概率: {win}%"
+    else:
+        start_gold = gambling_sessions[uid]['start_gold']
+        final_gold = gambling_sessions[uid]['gold']
+        record = await gold_change_record(uid, start_gold, final_gold)
+        del gambling_sessions[uid]
+        message += f"\n\n本局失败，已强制离场。"
+        message += record
+    
+    await gamble_continue_cmd.finish(message, at_sender=True)
+
+
+# ===== 见好就收/算了 =====
+gamble_stop_cmd = on_fullmatch(("见好就收", "算了"), priority=5, block=True)
+
+@gamble_stop_cmd.handle()
+async def handle_stop_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    if uid not in gambling_sessions:
+        return  # 不在赌局中，忽略
+    
+    current_round = gambling_sessions[uid].get('round', 0)
+    confirmed = gambling_sessions[uid].get('confirmed', False)
+    
+    if not confirmed:
+        # 在规则确认阶段取消
+        del gambling_sessions[uid]
+        await gamble_stop_cmd.finish("好吧，谨慎总是好的。赌局已取消。", at_sender=True)
+    elif current_round > 0:
+        # 赌了几轮后收手
+        start_gold = gambling_sessions[uid]['start_gold']
+        final_gold = gambling_sessions[uid]['gold']
+        record = await gold_change_record(uid, start_gold, final_gold)
+        del gambling_sessions[uid]
+        await gamble_stop_cmd.finish(f"明智的选择！你在第 {current_round} 轮后选择离场。" + record, at_sender=True)
+    else:
+        del gambling_sessions[uid]
+        await gamble_stop_cmd.finish("赌局已结束。", at_sender=True)
+
+
+# ===== 豪赌榜 =====
+gamble_ranking_cmd = on_fullmatch("豪赌榜", priority=5, block=True)
+
+@gamble_ranking_cmd.handle()
+async def handle_gamble_ranking(event: Event, bot: Bot):
+    """显示盈利排行榜"""
+    all_records = await get_all_gamble_record()
+    superusers = getattr(config, 'superusers', [])
+    
+    user_net_gains = []
+    for uid, records in all_records.items():
+        if uid not in superusers:
+            net_gain = records['increase_record'] - records['reduce_record']
+            if net_gain > 0:
+                user_net_gains.append((uid, net_gain))
+    
+    sorted_users = sorted(user_net_gains, key=lambda x: x[1], reverse=True)
+    
+    msg = "梦灵的零花钱都给了谁：\n"
+    for i, (uid, net_gain) in enumerate(sorted_users[:10], 1):
+        msg += f"第{i}名: {uid} 累计取走: {net_gain}金币\n"
+    
+    if len(sorted_users) == 0:
+        msg += "暂无零花钱记录"
+    
+    chain = await build_forward_chain(bot, [msg])
+    await send_group_forward_msg(event, bot, chain)
+
+
+# ===== 戒赌榜 =====
+gamble_loss_ranking_cmd = on_fullmatch(("戒赌榜", "零花钱贡献榜"), priority=5, block=True)
+
+@gamble_loss_ranking_cmd.handle()
+async def handle_gamble_loss_ranking(event: Event, bot: Bot):
+    """显示亏损排行榜"""
+    all_records = await get_all_gamble_record()
+    superusers = getattr(config, 'superusers', [])
+    
+    user_contributions = []
+    for uid, records in all_records.items():
+        if uid not in superusers:
+            net_contribution = records['reduce_record'] - records['increase_record']
+            if net_contribution > 0:
+                user_contributions.append((uid, net_contribution))
+    
+    sorted_users = sorted(user_contributions, key=lambda x: x[1], reverse=True)
+    
+    msg = "梦灵的零花钱来源：\n"
+    for i, (uid, net_contribution) in enumerate(sorted_users[:10], 1):
+        msg += f"第{i}名: {uid} 累计存入: {net_contribution}金币\n"
+    
+    if len(sorted_users) == 0:
+        msg += "暂无零花钱记录"
+    
+    chain = await build_forward_chain(bot, [msg])
+    await send_group_forward_msg(event, bot, chain)
+
+
+# ===== 豪赌记录 =====
+gamble_record_cmd = on_fullmatch(("豪赌记录", "零花钱记录", "金币记录"), priority=5, block=True)
+
+@gamble_record_cmd.handle()
+async def handle_gamble_record(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    """显示个人豪赌记录"""
+    user_record = await get_user_gamble_record(uid)
+    increase_record = user_record['increase_record']
+    reduce_record = user_record['reduce_record']
+    
+    msg = f"\n你已累计将{reduce_record}金币『暂存』在梦灵酱的钱包里；"
+    msg += f"\n你已累计从梦灵酱的钱包里拿走了{increase_record}金币。"
+    
+    if increase_record < reduce_record:
+        loss = reduce_record - increase_record
+        msg += f'\n\n"唔...一共送给人家{loss}金币的零花钱呢...谢谢你~"'
+    elif increase_record > reduce_record:
+        win = increase_record - reduce_record
+        msg += f'\n\n"唔...从人家钱包里拿走了{win}金币的零花钱呢...坏蛋！"'
+    
+    await gamble_record_cmd.finish(msg, at_sender=True)
+
+
+# ===== 幸运大转盘 =====
+
+# 奖品概率配置
+PRIZE_CONFIG = {
+    '杂鱼': {'weight': 30, 'multiplier': 0.1, 'special_chance': 0.75, 'special_prizes': ["钱包金币-1%"]},
+    '普通': {'weight': 50, 'multiplier': 1, 'special_chance': 0.0, 'special_prizes': []},
+    '稀有': {'weight': 15, 'multiplier': 5, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水"]},
+    '史诗': {'weight': 4, 'multiplier': 20, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水"]},
+    '传说': {'weight': 1, 'multiplier': 100, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍"]},
+}
+
+TIERS = list(PRIZE_CONFIG.keys())
+WEIGHTS = [details['weight'] for details in PRIZE_CONFIG.values()]
+
+# 基础奖品配置
+PRIZES = {
+    "gold": {"amount": 100, "chinese": "金币"},
+    "starstone": {"amount": 100, "chinese": "星星"},
+    "luckygold": {"amount": 0.25, "chinese": "幸运币"},
+}
+
+
+def draw_prize() -> str:
+    """根据权重随机抽取一个奖品档位"""
+    return random.choices(TIERS, weights=WEIGHTS, k=1)[0]
+
+
+async def give_prize(uid: int, prize_tier: str) -> str:
+    """处理奖品发放逻辑"""
+    prize_config = PRIZE_CONFIG[prize_tier]
+    
+    # 决定是发放特殊奖品还是普通奖品
+    if random.random() < prize_config['special_chance'] and prize_config['special_prizes']:
+        special_prize = random.choice(prize_config['special_prizes'])
+        if special_prize == "钱包金币翻倍":
+            user_gold = money.get_user_money(uid, 'gold') or 0
+            money.increase_user_money(uid, 'gold', user_gold)
+            return special_prize
+        if special_prize == "钱包金币-1%":
+            user_gold = money.get_user_money(uid, 'gold') or 0
+            deduct = max(1, int(user_gold * 0.01))
+            money.reduce_user_money(uid, 'gold', deduct)
+            return special_prize
+        else:
+            await add_user_item(uid, special_prize)
+            return special_prize
+    else:
+        # 发放普通资源奖品
+        prize_name = random.choice(list(PRIZES.keys()))
+        prize_info = PRIZES[prize_name]
+        prize_amount = max(1, int(prize_info["amount"] * random.randint(5, 20) * prize_config['multiplier']))
+        money.increase_user_money(uid, prize_name, prize_amount)
+        return f"{prize_info['chinese']} *{prize_amount}"
+
+
+turntable_cmd = on_fullmatch(("幸运大转盘", "幸运转盘"), priority=5, block=True)
+
+@turntable_cmd.handle()
+async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    """处理幸运大转盘游戏逻辑"""
+    gold = money.get_user_money(uid, 'gold') or 0
+    if gold <= 0:
+        await turntable_cmd.finish("欠债/失信用户，禁止游戏。", at_sender=True)
+    
+    # 检查每日次数
+    superusers = getattr(config, 'superusers', [])
+    can_spin, remaining = await check_turntable_limit(uid)
+    if not can_spin and uid not in superusers:
+        await turntable_cmd.finish(f"您今天的 {MAX_TURNS_PER_DAY} 次机会已经用完啦，明天再来吧！", at_sender=True)
+    
+    # 检查幸运币
+    lucky_coins = money.get_user_money(uid, 'luckygold') or 0
+    if lucky_coins < 1:
+        await turntable_cmd.finish("\n您的幸运币不足，无法启动转盘哦。", at_sender=True)
+    
+    money.reduce_user_money(uid, 'luckygold', 1)
+    remaining_turns = await record_turntable_spin(uid)
+    
+    # 抽取奖品
+    prize_tier = draw_prize()
+    prize_description = await give_prize(uid, prize_tier)
+    
+    result_message = f"\n指针停在了【{prize_tier}】区域！"
+    result_message += f"\n您获得了：{prize_description}"
+    result_message += f"\n您今天还剩下 {remaining_turns} 次机会。"
+    
+    await turntable_cmd.finish(result_message, at_sender=True)
+
+
+# ===== 领低保 =====
+dibao_cmd = on_fullmatch("领低保", priority=5, block=True)
+
+@dibao_cmd.handle()
+async def handle_dibao(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    """领取低保"""
+    dibao_amount = getattr(config, 'dibao', 3000)
+    if dibao_amount == 0:
+        await dibao_cmd.finish("\n低保功能维护中，请稍候再试。", at_sender=True)
+    
+    # 检查今天是否已领
+    if not await check_daily_prek(uid):
+        await dibao_cmd.finish("\n你今天已经领过了，明天再来吧。", at_sender=True)
+    
+    # 检查是否在赌博中
+    if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
+        await dibao_cmd.finish("\n赌徒不能领取低保哦~", at_sender=True)
+    
+    # 检查股票持仓
+    user_portfolio = await get_user_portfolio(uid)
+    if user_portfolio:
+        stock_names = ", ".join(user_portfolio.keys())
+        await dibao_cmd.finish(f"\n检测到你偷偷藏了股票({stock_names})，这么富还想骗低保？", at_sender=True)
+    
+    # 检查金币
+    user_gold = money.get_user_money(uid, 'gold') or 0
+    if user_gold > 4999:
+        await dibao_cmd.finish("\n这么富，还想骗低保？", at_sender=True)
+    if user_gold < 0:
+        await dibao_cmd.finish("欠债/失信用户，禁止操作。", at_sender=True)
+    
+    # 记录领取
+    await record_daily_prek(uid)
+    
+    # 发放低保
+    pet = await get_user_pet(uid)
+    if pet and not pet["runaway"]:
+        money.increase_user_money(uid, 'gold', dibao_amount+3000)
+        await dibao_cmd.finish(f"\n已领取{dibao_amount+3000}金币（含宠物补贴）。\n你现在有{user_gold + dibao_amount+3000}金币", at_sender=True)
+    else:
+        money.increase_user_money(uid, 'gold', dibao_amount)
+        await dibao_cmd.finish(f"\n已领取{dibao_amount}金币。\n你现在有{user_gold + dibao_amount}金币", at_sender=True)
+
+
+# ===== 转账功能 (uid/qq 两种模式) =====
+TRANSFER_FEE_RATE = getattr(config, 'transfer_fee', 0.1)
+MIN_REST = getattr(config, 'min_rest', 1000)
+
+# 转账uid [目标uid] [金额]
+transfer_uid_cmd = on_regex(r'^转账uid\s*(\d+)\s+(\d+)$', priority=5, block=True)
+
+@transfer_uid_cmd.handle()
+async def handle_transfer_uid(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    """通过UID转账"""
+    if not groups or len(groups) < 2:
+        await transfer_uid_cmd.finish("格式：转账uid [目标uid] [金额]", at_sender=True)
+    
+    target_uid = int(groups[0])
+    amount = int(groups[1])
+    
+    await _do_transfer(transfer_uid_cmd, uid, target_uid, amount)
+
+
+# 转账qq [目标QQ号] [金额]
+transfer_qq_cmd = on_regex(r'^转账qq\s*(\d+)\s+(\d+)$', priority=5, block=True)
+
+@transfer_qq_cmd.handle()
+async def handle_transfer_qq(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    """通过QQ号转账"""
+    if not groups or len(groups) < 2:
+        await transfer_qq_cmd.finish("格式：转账qq [目标QQ号] [金额]", at_sender=True)
+    
+    target_qq = groups[0]
+    amount = int(groups[1])
+    
+    # QQ号转UID（不自动创建）
+    target_uid = uid_manager.get_uid_by_external_id("onebot", target_qq)
+    if target_uid is None:
+        await transfer_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
+    
+    await _do_transfer(transfer_qq_cmd, uid, target_uid, amount)
+
+
+async def _do_transfer(cmd, sender_uid: int, target_uid: int, amount: int):
+    """执行转账逻辑"""
+    blackusers = getattr(config, 'BLACKUSERS', [])
+    if sender_uid in blackusers:
+        await cmd.finish('\n操作失败，账户被冻结，请联系管理员寻求帮助。', at_sender=True)
+    
+    if sender_uid == target_uid:
+        await cmd.finish('\n无法给自己转账', at_sender=True)
+    
+    if sender_uid in gambling_sessions and gambling_sessions[sender_uid].get('active', False):
+        await cmd.finish("\n你正处于豪赌过程中，不能转账哦~", at_sender=True)
+    
+    if target_uid in gambling_sessions and gambling_sessions[target_uid].get('active', False):
+        await cmd.finish("\n对方正处于豪赌过程中，不能转账哦~", at_sender=True)
+    
+    if amount < 20:
+        await cmd.finish('错误金额，最低转账20金币', at_sender=True)
+    
+    # 计算手续费
+    fee = int(amount * TRANSFER_FEE_RATE)
+    total_amount = amount + fee
+    
+    # 检查余额
+    gold = money.get_user_money(sender_uid, 'gold')
+    if gold is None:
+        await cmd.finish('无法获取转账人金币数量', at_sender=True)
+    if gold < total_amount:
+        await cmd.finish(f'\n余额不足，本次转账需要 {total_amount} 金币，包含 {fee} 金币手续费。\n你当前只有 {gold} 金币', at_sender=True)
+    
+    restgold = gold - total_amount
+    if restgold < MIN_REST:
+        await cmd.finish(f'\n禁止转账，如果转账，则你将仅剩{restgold}金币。\n请确保转账后剩余金币大于{MIN_REST}。', at_sender=True)
+    
+    # 执行转账
+    reduce_result = money.reduce_user_money(sender_uid, 'gold', total_amount)
+    if not reduce_result:
+        await cmd.finish('转账操作失败，请稍后再试', at_sender=True)
+    
+    increase_result = money.increase_user_money(target_uid, 'gold', amount)
+    if not increase_result:
+        money.increase_user_money(sender_uid, 'gold', total_amount)
+        await cmd.finish('转账失败，已退还金币', at_sender=True)
+    
+    await cmd.finish(f'\n转账成功，已向 UID:{target_uid} 转账 {amount} 金币，手续费 {fee} 金币\n你当前还剩 {restgold} 金币', at_sender=True)
+
+
+# ===== 管理员打款功能 (uid/qq 两种模式) =====
+
+# 打款uid [目标uid] [金额]
+admin_add_uid_cmd = on_regex(r'^打款uid\s*(\d+)\s+(\d+)$', priority=5, block=True)
+
+@admin_add_uid_cmd.handle()
+async def handle_admin_add_uid(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    """管理员通过UID打款"""
+    superusers = getattr(config, 'superusers', [])
+    if uid not in superusers:
+        await admin_add_uid_cmd.finish('权限不足', at_sender=True)
+    
+    if not groups or len(groups) < 2:
+        await admin_add_uid_cmd.finish("格式：打款uid [目标uid] [金额]", at_sender=True)
+    
+    target_uid = int(groups[0])
+    amount = int(groups[1])
+    
+    money.increase_user_money(target_uid, 'gold', amount)
+    await admin_add_uid_cmd.finish(f'已向 UID:{target_uid} 打款 {amount} 金币', at_sender=True)
+
+
+# 打款qq [目标QQ号] [金额]
+admin_add_qq_cmd = on_regex(r'^打款qq\s*(\d+)\s+(\d+)$', priority=5, block=True)
+
+@admin_add_qq_cmd.handle()
+async def handle_admin_add_qq(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    """管理员通过QQ号打款"""
+    superusers = getattr(config, 'superusers', [])
+    if uid not in superusers:
+        await admin_add_qq_cmd.finish('权限不足', at_sender=True)
+    
+    if not groups or len(groups) < 2:
+        await admin_add_qq_cmd.finish("格式：打款qq [目标QQ号] [金额]", at_sender=True)
+    
+    target_qq = groups[0]
+    amount = int(groups[1])
+    
+    # QQ号转UID
+    target_uid = uid_manager.get_uid_by_external_id("onebot", target_qq)
+    if target_uid is None:
+        await admin_add_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
+    
+    money.increase_user_money(target_uid, 'gold', amount)
+    await admin_add_qq_cmd.finish(f'已向 QQ:{target_qq} (UID:{target_uid}) 打款 {amount} 金币', at_sender=True)
+
+
+# ===== 管理员扣款功能 (uid/qq 两种模式) =====
+
+# 扣款uid [目标uid] [金额]
+admin_reduce_uid_cmd = on_regex(r'^扣款uid\s*(\d+)\s+(\d+)$', priority=5, block=True)
+
+@admin_reduce_uid_cmd.handle()
+async def handle_admin_reduce_uid(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    """管理员通过UID扣款"""
+    superusers = getattr(config, 'superusers', [])
+    if uid not in superusers:
+        await admin_reduce_uid_cmd.finish('权限不足', at_sender=True)
+    
+    if not groups or len(groups) < 2:
+        await admin_reduce_uid_cmd.finish("格式：扣款uid [目标uid] [金额]", at_sender=True)
+    
+    target_uid = int(groups[0])
+    amount = int(groups[1])
+    
+    target_gold = money.get_user_money(target_uid, 'gold')
+    if target_gold is None:
+        await admin_reduce_uid_cmd.finish('无法获取目标用户金币数量', at_sender=True)
+    
+    deduct_amount = min(amount, target_gold)
+    money.reduce_user_money(target_uid, 'gold', deduct_amount)
+    await admin_reduce_uid_cmd.finish(f'已从 UID:{target_uid} 扣款 {deduct_amount} 金币', at_sender=True)
+
+
+# 扣款qq [目标QQ号] [金额]
+admin_reduce_qq_cmd = on_regex(r'^扣款qq\s*(\d+)\s+(\d+)$', priority=5, block=True)
+
+@admin_reduce_qq_cmd.handle()
+async def handle_admin_reduce_qq(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
+    """管理员通过QQ号扣款"""
+    superusers = getattr(config, 'superusers', [])
+    if uid not in superusers:
+        await admin_reduce_qq_cmd.finish('权限不足', at_sender=True)
+    
+    if not groups or len(groups) < 2:
+        await admin_reduce_qq_cmd.finish("格式：扣款qq [目标QQ号] [金额]", at_sender=True)
+    
+    target_qq = groups[0]
+    amount = int(groups[1])
+    
+    # QQ号转UID
+    target_uid = uid_manager.get_uid_by_external_id("onebot", target_qq)
+    if target_uid is None:
+        await admin_reduce_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
+    
+    target_gold = money.get_user_money(target_uid, 'gold')
+    if target_gold is None:
+        await admin_reduce_qq_cmd.finish('无法获取目标用户金币数量', at_sender=True)
+    
+    deduct_amount = min(amount, target_gold)
+    money.reduce_user_money(target_uid, 'gold', deduct_amount)
+    await admin_reduce_qq_cmd.finish(f'已从 QQ:{target_qq} (UID:{target_uid}) 扣款 {deduct_amount} 金币', at_sender=True)

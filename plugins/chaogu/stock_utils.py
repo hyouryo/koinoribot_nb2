@@ -164,7 +164,44 @@ def init_stock_database():
             FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
         )
     ''')
-
+    
+    # 豪赌记录表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS gamble_record (
+            uid INTEGER PRIMARY KEY,
+            reduce_record INTEGER NOT NULL DEFAULT 0,
+            increase_record INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
+        )
+    ''')
+    
+    # 每日赌博限制表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS daily_gamble_limits (
+            uid INTEGER PRIMARY KEY,
+            last_gamble_date TEXT NOT NULL,
+            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
+        )
+    ''')
+    
+    # 每日转盘次数限制表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS daily_turntable_limits (
+            uid INTEGER PRIMARY KEY,
+            last_date TEXT NOT NULL,
+            turn_count INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
+        )
+    ''')
+    
+    # 每日低保领取记录表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS daily_prek (
+            uid INTEGER PRIMARY KEY,
+            last_prek_date TEXT NOT NULL,
+            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
+        )
+    ''')
     
     conn.commit()
     conn.close()
@@ -475,3 +512,225 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
         logger.error(traceback.format_exc())
         return None
 
+
+# ===== 豪赌记录相关函数 =====
+
+async def update_gamble_record(uid: int, change_amount: int) -> bool:
+    """更新豪赌记录 (正数增加increase_record，负数增加reduce_record)"""
+    init_stock_database()
+    
+    def _update():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        if change_amount >= 0:
+            # 正数：增加increase_record
+            cursor.execute('''
+                INSERT INTO gamble_record (uid, increase_record, reduce_record) 
+                VALUES (?, ?, 0)
+                ON CONFLICT(uid) DO UPDATE SET 
+                increase_record = increase_record + excluded.increase_record
+            ''', (uid, change_amount))
+        else:
+            # 负数：增加reduce_record（取绝对值）
+            cursor.execute('''
+                INSERT INTO gamble_record (uid, increase_record, reduce_record) 
+                VALUES (?, 0, ?)
+                ON CONFLICT(uid) DO UPDATE SET 
+                reduce_record = reduce_record + excluded.reduce_record
+            ''', (uid, abs(change_amount)))
+        
+        conn.commit()
+        conn.close()
+        return True
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _update)
+
+
+async def get_all_gamble_record() -> Dict[int, dict]:
+    """获取所有用户的豪赌记录"""
+    init_stock_database()
+    
+    def _query():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT uid, increase_record, reduce_record FROM gamble_record')
+        results = cursor.fetchall()
+        conn.close()
+        
+        return {
+            row['uid']: {
+                'increase_record': row['increase_record'],
+                'reduce_record': row['reduce_record']
+            } for row in results
+        }
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _query)
+
+
+async def get_user_gamble_record(uid: int) -> dict:
+    """获取单个用户的豪赌记录"""
+    all_records = await get_all_gamble_record()
+    return all_records.get(uid, {'increase_record': 0, 'reduce_record': 0})
+
+
+async def check_daily_gamble_limit(uid: int) -> bool:
+    """检查用户今天是否还可以赌博（True=可以，False=今天已赌过）"""
+    from datetime import date
+    init_stock_database()
+    
+    def _check():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT last_gamble_date FROM daily_gamble_limits WHERE uid = ?', (uid,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result is None:
+            return True  # 从未赌过
+        
+        today_str = date.today().isoformat()
+        return result['last_gamble_date'] != today_str
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _check)
+
+
+async def record_gamble_today(uid: int):
+    """记录用户今天进行了赌博"""
+    from datetime import date
+    init_stock_database()
+    
+    def _record():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        today_str = date.today().isoformat()
+        cursor.execute('''
+            INSERT OR REPLACE INTO daily_gamble_limits (uid, last_gamble_date)
+            VALUES (?, ?)
+        ''', (uid, today_str))
+        
+        conn.commit()
+        conn.close()
+    
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _record)
+
+
+# ===== 转盘次数限制相关函数 =====
+
+MAX_TURNS_PER_DAY = 5
+
+async def check_turntable_limit(uid: int) -> tuple[bool, int]:
+    """检查用户今天是否还可以转盘（True=可以，False=次数用完）
+    返回: (can_spin, remaining_turns)
+    """
+    from datetime import date
+    init_stock_database()
+    
+    def _check():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT last_date, turn_count FROM daily_turntable_limits WHERE uid = ?', (uid,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result is None:
+            return (True, MAX_TURNS_PER_DAY)
+        
+        today_str = date.today().isoformat()
+        if result['last_date'] != today_str:
+            return (True, MAX_TURNS_PER_DAY)
+        
+        turns_today = result['turn_count']
+        remaining = MAX_TURNS_PER_DAY - turns_today
+        return (remaining > 0, remaining)
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _check)
+
+
+async def record_turntable_spin(uid: int) -> int:
+    """记录用户今天转了一次转盘，返回剩余次数"""
+    from datetime import date
+    init_stock_database()
+    
+    def _record():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        today_str = date.today().isoformat()
+        
+        # 获取当前次数
+        cursor.execute('SELECT last_date, turn_count FROM daily_turntable_limits WHERE uid = ?', (uid,))
+        result = cursor.fetchone()
+        
+        if result is None or result['last_date'] != today_str:
+            new_count = 1
+        else:
+            new_count = result['turn_count'] + 1
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO daily_turntable_limits (uid, last_date, turn_count)
+            VALUES (?, ?, ?)
+        ''', (uid, today_str, new_count))
+        
+        conn.commit()
+        conn.close()
+        return MAX_TURNS_PER_DAY - new_count
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _record)
+
+
+# ===== 低保领取记录相关函数 =====
+
+async def check_daily_prek(uid: int) -> bool:
+    """检查用户今天是否已领低保（True=可以领，False=已领过）"""
+    from datetime import date
+    init_stock_database()
+    
+    def _check():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT last_prek_date FROM daily_prek WHERE uid = ?', (uid,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result is None:
+            return True
+        
+        today_str = date.today().isoformat()
+        return result['last_prek_date'] != today_str
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _check)
+
+
+async def record_daily_prek(uid: int):
+    """记录用户今天领了低保"""
+    from datetime import date
+    init_stock_database()
+    
+    def _record():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        today_str = date.today().isoformat()
+        cursor.execute('''
+            INSERT OR REPLACE INTO daily_prek (uid, last_prek_date)
+            VALUES (?, ?)
+        ''', (uid, today_str))
+        
+        conn.commit()
+        conn.close()
+    
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _record)

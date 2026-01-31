@@ -240,6 +240,50 @@ async def handle_thousand_fish(
     )
 
 
+# ----- 万连钓鱼 -----
+thousand_fish_cmd = on_command("万连钓鱼", priority=5, block=True)
+
+
+@thousand_fish_cmd.handle()
+async def handle_thousand_fish(
+    matcher: Matcher,
+    uid: int = Depends(get_uid),
+    wallet: UserWallet = Depends(wallet_manager),
+) -> None:
+    await FishingManager.multi_fishing(
+        uid,
+        matcher,
+        10000,
+        90000,
+        config.star_price * 10000 // 2,
+        "千连钓鱼",
+        general_cooldown,
+        wallet,
+    )
+
+
+# ----- 十万连钓鱼 -----
+thousand_fish_cmd = on_command("十万连钓鱼", priority=5, block=True)
+
+
+@thousand_fish_cmd.handle()
+async def handle_thousand_fish(
+    matcher: Matcher,
+    uid: int = Depends(get_uid),
+    wallet: UserWallet = Depends(wallet_manager),
+) -> None:
+    await FishingManager.multi_fishing(
+        uid,
+        matcher,
+        100000,
+        1,
+        config.star_price * 0 // 2,
+        "千连钓鱼",
+        general_cooldown,
+        wallet,
+    )
+
+
 # ----- 买鱼饵 -----
 buy_bait_cmd = on_command("买鱼饵", priority=5, block=True)
 
