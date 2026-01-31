@@ -821,6 +821,38 @@ async def handle_retrieve(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     await retrieve_cmd.finish(f"你找回了{pet['name']}，这一次，一定要好好珍惜哦~", at_sender=True)
 
 
+# ===== 放生宠物 =====
+release_pet_cmd = on_command("放生宠物", priority=5, block=True)
+
+@release_pet_cmd.handle()
+async def handle_release_pet(
+    event: Event, bot: Bot, 
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid)
+):
+    pet = await get_user_pet(uid)
+    if not pet:
+        await release_pet_cmd.finish("你还没有宠物！", at_sender=True)
+    
+    if pet.get("temp_data"):
+        await release_pet_cmd.finish("你有一只待领养的宠物，请使用'放弃宠物'来放弃领养。", at_sender=True)
+    
+    # 更新宠物状态
+    pet = await update_pet_status(pet)
+    await update_user_pet(uid, pet)
+    
+    # 确认操作
+    confirm = args.extract_plain_text().strip().lower()
+    if confirm != "确认":
+        await release_pet_cmd.finish(
+            f"确定要放生{pet['name']}吗？这将永久失去它！\n使用'放生宠物 确认'来确认操作", 
+            at_sender=True
+        )
+    
+    await remove_user_pet(uid)
+    await release_pet_cmd.finish(f"你放生了{pet['name']}。", at_sender=True)
+
+
 # ===== 永恒誓约 =====
 oath_cmd = on_command("永恒誓约", priority=5, block=True)
 
