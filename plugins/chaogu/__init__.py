@@ -46,7 +46,8 @@ from .stock_utils import (
 from ... import uid_manager
 # 宠物相关
 from ..chongwu.pet import get_user_pets, add_user_item
-
+#su
+superusers = getattr(config, 'superusers', [])
 __plugin_meta__ = PluginMetadata(
     name="chaogu",
     description="股票市场系统 - 完整版（含幸运游戏、转盘、低保）",
@@ -610,7 +611,7 @@ async def perform_gamble_round(uid: int) -> dict:
     win_probability = gambling_sessions[uid]['win']
     
     # 超级用户加成（可选，保持原逻辑）
-    superusers = getattr(config, 'superusers', [])
+    
     if uid in superusers:
         win_probability += 0.5
     
@@ -664,7 +665,7 @@ async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid
         await gamble_start_cmd.finish("你正在进行一场豪赌，请先完成或使用 '见好就收' 结束当前赌局。", at_sender=True)
     
     # 检查每日限制
-    superusers = getattr(config, 'superusers', [])
+    
     if not await check_daily_gamble_limit(uid) and uid not in superusers:
         await gamble_start_cmd.finish("你今天已经赌过了，明天再来吧！人生的大起大落可经不起天天折腾哦。", at_sender=True)
     
@@ -844,7 +845,7 @@ gamble_ranking_cmd = on_fullmatch("豪赌榜", priority=5, block=True)
 async def handle_gamble_ranking(event: Event, bot: Bot):
     """显示盈利排行榜"""
     all_records = await get_all_gamble_record()
-    superusers = getattr(config, 'superusers', [])
+    
     
     user_net_gains = []
     for uid, records in all_records.items():
@@ -873,7 +874,7 @@ gamble_loss_ranking_cmd = on_fullmatch(("戒赌榜", "零花钱贡献榜"), prio
 async def handle_gamble_loss_ranking(event: Event, bot: Bot):
     """显示亏损排行榜"""
     all_records = await get_all_gamble_record()
-    superusers = getattr(config, 'superusers', [])
+    
     
     user_contributions = []
     for uid, records in all_records.items():
@@ -983,7 +984,7 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
         await turntable_cmd.finish("欠债/失信用户，禁止游戏。", at_sender=True)
     
     # 检查每日次数
-    superusers = getattr(config, 'superusers', [])
+    
     can_spin, remaining = await check_turntable_limit(uid)
     if not can_spin and uid not in superusers:
         await turntable_cmd.finish(f"您今天的 {MAX_TURNS_PER_DAY} 次机会已经用完啦，明天再来吧！", at_sender=True)
@@ -1144,7 +1145,7 @@ admin_add_uid_cmd = on_regex(r'^打款uid\s*(\d+)\s+(\d+)$', priority=5, block=T
 @admin_add_uid_cmd.handle()
 async def handle_admin_add_uid(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
     """管理员通过UID打款"""
-    superusers = getattr(config, 'superusers', [])
+    
     if uid not in superusers:
         await admin_add_uid_cmd.finish('权限不足', at_sender=True)
     
@@ -1164,7 +1165,7 @@ admin_add_qq_cmd = on_regex(r'^打款qq\s*(\d+)\s+(\d+)$', priority=5, block=Tru
 @admin_add_qq_cmd.handle()
 async def handle_admin_add_qq(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
     """管理员通过QQ号打款"""
-    superusers = getattr(config, 'superusers', [])
+    
     if uid not in superusers:
         await admin_add_qq_cmd.finish('权限不足', at_sender=True)
     
@@ -1191,7 +1192,7 @@ admin_reduce_uid_cmd = on_regex(r'^扣款uid\s*(\d+)\s+(\d+)$', priority=5, bloc
 @admin_reduce_uid_cmd.handle()
 async def handle_admin_reduce_uid(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
     """管理员通过UID扣款"""
-    superusers = getattr(config, 'superusers', [])
+    
     if uid not in superusers:
         await admin_reduce_uid_cmd.finish('权限不足', at_sender=True)
     
@@ -1216,7 +1217,7 @@ admin_reduce_qq_cmd = on_regex(r'^扣款qq\s*(\d+)\s+(\d+)$', priority=5, block=
 @admin_reduce_qq_cmd.handle()
 async def handle_admin_reduce_qq(event: Event, bot: Bot, uid: int = Depends(get_uid), groups: tuple = RegexGroup()):
     """管理员通过QQ号扣款"""
-    superusers = getattr(config, 'superusers', [])
+    
     if uid not in superusers:
         await admin_reduce_qq_cmd.finish('权限不足', at_sender=True)
     
