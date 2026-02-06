@@ -57,7 +57,7 @@ pet_help = """
 2. 购买 [名称] [数量] - 购买指定宠物用品
 3. 退还 [名称] [数量] - 以『50%的价格』退还指定宠物用品
 4. 宠物背包 - 查看拥有的宠物用品
-5. 投喂 [料理名称] -消耗【对应的料理】
+5. 投喂 [料理名称] [数量（可选）] 
 6. 丟玩具球 - 消耗【玩具球】
 7. 寻回宠物 - 消耗【最初的契约】
 8. 重置进化路线 - 消耗【时之泪】
@@ -223,7 +223,7 @@ async def handle_open_gacha(
         rarity = pet_data[pet_type]["rarity"]
         await open_gacha_cmd.finish(
             f"🎉 恭喜！从[{gacha_name}]中抽中了{rarity}宠物【{pet_type}】！\n"
-            f"请使用'领养宠物 [名字]'来领养它，或使用'放弃宠物'放弃。", at_sender=True)
+            f"请使用'领养宠物 [名字]'来领养她，或使用'放弃宠物'放弃。", at_sender=True)
     else:
         money.increase_user_money(uid, 'gold', GACHA_CONSOLE_PRIZE)
         await open_gacha_cmd.finish(f"很遗憾，没有抽中宠物，获得{GACHA_CONSOLE_PRIZE}金币安慰奖！", at_sender=True)
@@ -540,8 +540,8 @@ async def handle_feed(
     await update_user_pet(uid, pet)
     
     msg = f"你给{pet['name']}投喂了{quantity}份{food_type}！\n"
-    msg += f"饱食度+{total_hunger} 精力+{total_energy} "
-    msg += f"好感度+{total_happiness} 成长值+{total_growth}"
+    msg += f"饱食度+{total_hunger} \n精力+{total_energy} \n"
+    msg += f"好感度+{total_happiness} \n成长值+{total_growth}"
     
     await feed_cmd.finish(msg, at_sender=True)
 
@@ -565,7 +565,7 @@ async def handle_pat(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     await update_user_pet(uid, pet)
     
     await pat_cmd.finish(
-        f"{pet['name']}很享受你的抚摸，用脸蛋轻轻蹭了蹭你的手...\n精力-5 好感+15", at_sender=True)
+        f"{pet['name']}很享受你的抚摸，用脸蛋轻轻蹭了蹭你的手...\n精力-5 \n好感+15", at_sender=True)
 
 
 # ===== 补充精力 =====
@@ -592,8 +592,34 @@ async def handle_energy(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     
     await update_user_pet(uid, pet)
     await energy_cmd.finish(
-        f"你给{pet['name']}喝了能量饮料，它立刻精神焕发！\n精力+{item['energy']} 好感+{item['happiness']}", at_sender=True)
+        f"你给{pet['name']}喝了能量饮料，她立刻精神焕发！\n精力+{item['energy']} \n好感+{item['happiness']}", at_sender=True)
 
+
+# ===== 丢玩具球 =====
+energy_cmd = on_command("丟玩具球", priority=5, block=True)
+@energy_cmd.handle()
+async def handle_throw_ball(event: Event, bot: Bot, uid: int = Depends(get_uid)):
+    if not await use_user_item(uid, "玩具球"):
+        await energy_cmd.finish("你没有玩具球！", at_sender=True)
+    
+    pet = await get_user_pet(uid)
+    if not pet or pet.get("temp_data"):
+        await add_user_item(uid, "玩具球")
+        await energy_cmd.finish("你还没有宠物！", at_sender=True)
+    
+    pet = await update_pet_status(pet)
+    if pet.get("runaway"):
+        await add_user_item(uid, "玩具球")
+        await energy_cmd.finish(f"你的宠物【{pet['name']}】离家出走了！", at_sender=True)
+    
+    item = PET_SHOP_ITEMS["玩具球"]
+    pet["hunger"] = max(0, pet["hunger"] + item["hunger"])
+    pet["energy"] = max(0, pet["energy"] + item["energy"])
+    pet["happiness"] = min(pet["max_happiness"], pet["happiness"] + item["happiness"])
+    
+    await update_user_pet(uid, pet)
+    await energy_cmd.finish(
+        f"你给{pet['name']}丢出了玩具球，她开心地地追了过去！\n饱食度{item['hunger']}\n精力{item['energy']}\n好感度+{item['happiness']}", at_sender=True)
 
 # ===== 学习技能 =====
 learn_skill_cmd = on_command("学习技能", priority=5, block=True)
@@ -901,7 +927,7 @@ async def handle_release_pet(
     confirm = args.extract_plain_text().strip().lower()
     if confirm != "确认":
         await release_pet_cmd.finish(
-            f"确定要放生{pet['name']}吗？这将永久失去它！\n使用'放生宠物 确认'来确认操作", 
+            f"确定要放生{pet['name']}吗？这将永久失去她！\n使用'放生宠物 确认'来确认操作", 
             at_sender=True
         )
     
@@ -930,7 +956,7 @@ async def handle_eternal_oath(event: Event, bot: Bot, uid: int = Depends(get_uid
         await oath_cmd.finish(msg, at_sender=True)
     
     if pet.get("runaway"):
-        await oath_cmd.finish(f"{pet['name']}已经离家出走了！使用'最初的契约'可以寻回它。", at_sender=True)
+        await oath_cmd.finish(f"{pet['name']}已经离家出走了！使用'最初的契约'可以寻回她。", at_sender=True)
     
     if not await use_user_item(uid, "誓约戒指"):
         msg = f'\n{pet["name"]}有些失落地看着你...\n"那种事情...没有戒指怎么行..."'
