@@ -105,6 +105,29 @@ def is_expired(session: Dict) -> bool:
 
 
 # ===== 猜英语单词 =====
+def draw_wordle_legend(bg: BuildImage) -> BuildImage:
+    """绘制猜单词图例"""
+    extra_h = 70
+    new_bg = BuildImage(bg.w, bg.h + extra_h, color=(255, 255, 255), font_size=12)
+    new_bg.paste(bg, (0, 0))
+    
+    start_y = bg.h + 8
+    left_m = 10
+    box_s = 14
+    line_s = 24
+    
+    # 1. Gray
+    new_bg.rectangle((left_m, start_y, left_m + box_s, start_y + box_s), fill=color_light_gray)
+    new_bg.text((left_m + 30, start_y), "字母正确但位置不对", fill=font_color)
+    
+    # 2. Blue
+    start_y += line_s
+    new_bg.rectangle((left_m, start_y, left_m + box_s, start_y + box_s), fill=color_blue)
+    new_bg.text((left_m + 30, start_y), "字母正确且位置正确", fill=font_color)
+    
+    return new_bg
+
+
 wordle_cmd = on_command("猜单词", priority=5, block=True)
 
 @wordle_cmd.handle()
@@ -157,6 +180,7 @@ async def handle_wordle(event: Event, bot: Bot, args: Message = CommandArg(), gi
     # 生成背景图片
     bg_path = plugin_dir / 'data' / 'imgs' / 'en' / f'{word_len}len.png'
     bg = BuildImage(0, 0, background=str(bg_path))
+    bg = draw_wordle_legend(bg)
     bg.save(str(temp_path / f'{gid}.png'))
     
     img_msg = MessageSegment.image(f"base64://{bg.pic2bs4()}")
