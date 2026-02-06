@@ -167,14 +167,15 @@ async def handle_wordle(event: Event, bot: Bot, args: Message = CommandArg(), gi
 # ===== 猜数字 =====
 def draw_digit_legend(bg: BuildImage) -> BuildImage:
     """绘制猜数字图例"""
-    extra_h = 160
-    new_bg = BuildImage(bg.w, bg.h + extra_h, color=(255, 255, 255), font_size=15)
+    extra_h = 110
+    # 字体调整为12，避免溢出
+    new_bg = BuildImage(bg.w, bg.h + extra_h, color=(255, 255, 255), font_size=12)
     new_bg.paste(bg, (0, 0))
     
-    start_y = bg.h + 10
-    left_m = 20
-    box_s = 20
-    line_s = 35
+    start_y = bg.h + 8
+    left_m = 10
+    box_s = 14
+    line_s = 24
     
     # 1. Gray
     new_bg.rectangle((left_m, start_y, left_m + box_s, start_y + box_s), fill=color_light_gray)
