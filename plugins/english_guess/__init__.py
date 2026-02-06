@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from nonebot import on_command, on_message, get_driver
-from nonebot.adapters import Event, Bot
+from nonebot.adapters import Event, Bot, Message
 from nonebot.plugin import PluginMetadata
-from nonebot.params import Depends
+from nonebot.params import Depends, CommandArg
 from nonebot import logger
 from nonebot.adapters.onebot.v11 import MessageSegment
 
@@ -32,7 +32,7 @@ from ...tools import get_group_id
 __plugin_meta__ = PluginMetadata(
     name="english_guess",
     description="猜单词游戏 - 英语/日语/数字",
-    usage="wordle / 猜单词 / digitle / 猜数字 / tangole / 猜日语",
+    usage="猜单词 / 猜数字 / 猜日语",
 )
 
 # ===== 配置和常量 =====
@@ -105,22 +105,16 @@ def is_expired(session: Dict) -> bool:
 
 
 # ===== 猜英语单词 =====
-wordle_cmd = on_command("wordle", aliases={"猜单词", "#猜单词", "/wordle"}, priority=5, block=True)
+wordle_cmd = on_command("猜单词", priority=5, block=True)
 
 @wordle_cmd.handle()
-async def handle_wordle(event: Event, bot: Bot, gid: str = Depends(get_group_id)):
+async def handle_wordle(event: Event, bot: Bot, args: Message = CommandArg(), gid: str = Depends(get_group_id)):
     session = find_session(gid)
     if session:
         await wordle_cmd.finish(f"上一轮猜单词游戏还没结束，现在正在猜{session.get('type', '未知')}喔", at_sender=True)
     
     # 解析参数
-    msg_text = event.get_plaintext().strip()
-    # 移除命令前缀
-    for prefix in ['wordle', '猜单词', '#猜单词', '/wordle']:
-        if msg_text.startswith(prefix):
-            msg_text = msg_text[len(prefix):].strip()
-            break
-    
+    msg_text = args.extract_plain_text().strip()
     msg_splt = msg_text.split()
     level = '四级'
     word_len = 5
@@ -170,21 +164,16 @@ async def handle_wordle(event: Event, bot: Bot, gid: str = Depends(get_group_id)
 
 
 # ===== 猜数字 =====
-digitle_cmd = on_command("digitle", aliases={"猜数字", "#猜数字"}, priority=5, block=True)
+digitle_cmd = on_command("猜数字", priority=5, block=True)
 
 @digitle_cmd.handle()
-async def handle_digitle(event: Event, bot: Bot, gid: str = Depends(get_group_id)):
+async def handle_digitle(event: Event, bot: Bot, args: Message = CommandArg(), gid: str = Depends(get_group_id)):
     session = find_session(gid)
     if session:
         await digitle_cmd.finish(f"上一轮猜单词游戏还没结束，现在正在猜{session.get('type', '未知')}喔", at_sender=True)
     
     # 解析参数
-    msg_text = event.get_plaintext().strip()
-    for prefix in ['digitle', '猜数字', '#猜数字']:
-        if msg_text.startswith(prefix):
-            msg_text = msg_text[len(prefix):].strip()
-            break
-    
+    msg_text = args.extract_plain_text().strip()
     length = 3
     if msg_text.isdigit() and 3 <= int(msg_text) <= 9:
         length = int(msg_text)
@@ -213,21 +202,16 @@ async def handle_digitle(event: Event, bot: Bot, gid: str = Depends(get_group_id
 
 
 # ===== 猜日语 =====
-tangole_cmd = on_command("tangole", aliases={"猜日语", "#猜日语", "/tangole"}, priority=5, block=True)
+tangole_cmd = on_command("猜日语", priority=5, block=True)
 
 @tangole_cmd.handle()
-async def handle_tangole(event: Event, bot: Bot, gid: str = Depends(get_group_id)):
+async def handle_tangole(event: Event, bot: Bot, args: Message = CommandArg(), gid: str = Depends(get_group_id)):
     session = find_session(gid)
     if session:
         await tangole_cmd.finish(f"上一轮猜单词游戏还没结束，现在正在猜{session.get('type', '未知')}喔", at_sender=True)
     
     # 解析参数
-    msg_text = event.get_plaintext().strip()
-    for prefix in ['tangole', '猜日语', '#猜日语', '/tangole']:
-        if msg_text.startswith(prefix):
-            msg_text = msg_text[len(prefix):].strip()
-            break
-    
+    msg_text = args.extract_plain_text().strip()
     level = 'all'
     if msg_text and msg_text.lower() in ['n45', 'n3', 'n2', 'n1', 'n4', 'n5']:
         level = msg_text.lower()

@@ -1,8 +1,8 @@
 {
   "10002": {
-    "default": "Background-hoshi-5.jpg",
+    "default": "Background4.jpg",
     "custom": "",
-    "mode": 1
+    "mode": 0
   },
   "10004": {
     "default": "Background8.jpg",
@@ -86,6 +86,26 @@
   },
   "10013": {
     "default": "Background3.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10216": {
+    "default": "Background3.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10378": {
+    "default": "Background7.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10444": {
+    "default": "Background-hoshi-3.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10205": {
+    "default": "Background13.jpg",
     "custom": "",
     "mode": 0
   }

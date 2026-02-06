@@ -359,10 +359,15 @@ async def as_login_v3(uid: int, username: str, qqname: str, nick_flag: int, avat
         except Exception as e:
             pass  # 头像加载失败，跳过
     
-    # 日期+累计签到
+    # 日期+累计签到（上移至y=473以腾出UID显示空间）
     date_text = BuildImage(0, 0, plain_text=date_msg, font_size=30, font='nyan.ttf',
                            font_color=(77, 83, 149), stroke_width=border, stroke_fill=(255, 255, 255))
-    bg.paste(date_text, (23, 490), True)
+    bg.paste(date_text, (23, 473), True)
+    
+    # 左下角显示UID
+    uid_text = BuildImage(0, 0, plain_text=f'UID：{uid}', font_size=18, font='yz.ttf',
+                          font_color=(77, 83, 149), stroke_width=border, stroke_fill=(255, 255, 255))
+    bg.paste(uid_text, (23, 510), True)
     
     # 用户名
     size = check_str_len(qqname)
@@ -624,6 +629,10 @@ async def get_purse(uid: int, user_name: str, guild_flag: int = 0, avatar_url: s
     
     kirastone_text = BuildImage(0, 0, plain_text=f'宝石 {user_kirastone}颗', font_size=30, font='yz.ttf', font_color=font_color)
     bg.paste(img=kirastone_text, pos=(420, 78), alpha=True)
+    
+    # 左下角显示UID
+    uid_text = BuildImage(0, 0, plain_text=f'UID：{uid}', font_size=16, font='yz.ttf', font_color=font_color)
+    bg.paste(img=uid_text, pos=(20, 290), alpha=True)
     
     # 使用本地文件保存以避免 NTQQ 超时问题
     return save_to_local(bg, "purse")
