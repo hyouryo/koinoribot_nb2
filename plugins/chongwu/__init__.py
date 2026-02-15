@@ -428,7 +428,7 @@ async def handle_pet_bag(event: Event, bot: Bot, uid: int = Depends(get_uid)):
         await pet_bag_cmd.finish("你目前没有宠物用品。使用'购买'来获取。", at_sender=True)
     
     item_list = [f"• {name} ×{count}" for name, count in user_items.items()]
-    msg = "宠物背包\n━━━━━━━━━\n" + "\n".join(item_list)
+    msg = "\n宠物背包\n━━━━━━━━━\n" + "\n".join(item_list)
     
     await pet_bag_cmd.finish(msg, at_sender=True)
 

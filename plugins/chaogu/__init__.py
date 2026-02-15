@@ -394,11 +394,11 @@ async def handle_my_portfolio(event: Event, bot: Bot, uid: int = Depends(get_uid
     user_portfolio = await get_user_portfolio(uid)
     
     if not user_portfolio:
-        await my_portfolio_cmd.finish("您的股仓是空的，快去买点股票吧！", at_sender=True)
+        await my_portfolio_cmd.finish("\n您的股仓是空的，快去买点股票吧！", at_sender=True)
     
     stock_data = await get_stock_data()
     
-    lines = ["💼 您的股仓详情:"]
+    lines = ["\n您的股仓详情:"]
     total_value = 0.0
     
     for stock_name, amount in user_portfolio.items():
