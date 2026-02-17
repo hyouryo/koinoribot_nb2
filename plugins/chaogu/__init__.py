@@ -67,7 +67,7 @@ MAX_GAMBLE_ROUNDS = 5
 gambling_sessions: Dict[int, dict] = {}
 
 # ===== 股票帮助 =====
-stock_help_cmd = on_command("股票帮助", priority=5, block=True)
+stock_help_cmd = on_command("股票帮助", aliases={"炒股帮助"}, priority=5, block=True)
 
 # 炒股帮助内容（迁移自old_bot完整版）
 help_chaogu = '''炒股游戏帮助：

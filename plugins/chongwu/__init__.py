@@ -377,7 +377,12 @@ async def handle_shop(event: Event, bot: Bot):
     msg = "🏪 宠物商店\n━━━━━━━━━━\n" + "\n".join(item_list)
     msg += "\n\n使用: 购买 物品名 [数量]"
     
-    await shop_cmd.finish(msg)
+    try:
+        chain = await build_forward_chain(bot, [msg])
+        await send_group_forward_msg(event, bot, chain)
+    except Exception as e:
+        logger.error(f"宠物商店合并消息发送失败: {e}")
+        await shop_cmd.finish(msg)
 
 
 # ===== 购买 =====
