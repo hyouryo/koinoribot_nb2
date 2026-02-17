@@ -128,7 +128,7 @@ async def handle_prob() -> None:
 
 
 # ----- 单抽钓鱼 -----
-single_fish_cmd = on_command("钓鱼", priority=5, block=True)
+single_fish_cmd = on_command("钓鱼", aliases={"🎣"}, priority=5, block=True)
 
 
 @single_fish_cmd.handle()
