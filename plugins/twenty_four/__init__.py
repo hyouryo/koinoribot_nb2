@@ -41,7 +41,7 @@ async def twenty_four_handle() -> None:
     if not start:
         start = True
     else:
-        await twenty_four.finish(f"已有24点游戏，当前的4个数是：{nums}")
+        await twenty_four.finish(f"已有24点游戏，当前的4个数是：" + " ".join(nums))
     async with open(answer_path, encoding="utf-8") as f:
         file = await f.read()
     _dict:dict = json.loads(file)
@@ -59,9 +59,11 @@ get_twenty_four_answer = on_message(priority=10, block=False)
 
 @get_twenty_four_answer.handle()
 async def _(event:Event) -> None:
+    global start  # noqa: PLW0603
     if not start:
         return
     if time() > time_out:
+        start = False
         await get_twenty_four_answer.finish('24点游戏时间到~')
     submit = event.get_message().extract_plain_text().strip()
     if submit == '24点提示':
@@ -78,6 +80,7 @@ async def _(event:Event) -> None:
     if match != nums:
         await get_twenty_four_answer.finish('必须要用到题目里的四个数喔')
     if answer_ == 24:  # noqa: PLR2004
+        start = False
         await get_twenty_four_answer.finish(f'{format_}={answer_}，{get_sender_nickname(event)}回答正确~')  # noqa: E501
     else:
         await get_twenty_four_answer.finish(f'{format_}={answer_}，答案不对喔...')
