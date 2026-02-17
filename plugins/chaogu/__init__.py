@@ -25,6 +25,7 @@ from nonebot import logger
 from ... import money
 from ...koinori_config import config
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain
+from ..fishing.util import DatabaseManager as FishingDB
 
 from .stock_utils import (
     set_db_path, init_stock_database,
@@ -941,11 +942,11 @@ async def handle_gamble_record(event: Event, bot: Bot, uid: int = Depends(get_ui
 
 # 奖品概率配置
 PRIZE_CONFIG = {
-    '杂鱼': {'weight': 30, 'multiplier': 0.1, 'special_chance': 0.75, 'special_prizes': ["钱包金币-1%"]},
-    '普通': {'weight': 50, 'multiplier': 1, 'special_chance': 0.0, 'special_prizes': []},
-    '稀有': {'weight': 15, 'multiplier': 5, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水"]},
-    '史诗': {'weight': 4, 'multiplier': 20, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水"]},
-    '传说': {'weight': 1, 'multiplier': 100, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍"]},
+    '杂鱼': {'weight': 30, 'multiplier': 0.1, 'fish_add': 0.1, 'special_chance': 0.75, 'special_prizes': ["钱包金币-1%"]},
+    '普通': {'weight': 50, 'multiplier': 1, 'fish_add': 1, 'special_chance': 0.0, 'special_prizes': []},
+    '稀有': {'weight': 15, 'multiplier': 5, 'fish_add': 3, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水"]},
+    '史诗': {'weight': 4, 'multiplier': 20, 'fish_add': 5, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水"]},
+    '传说': {'weight': 1, 'multiplier': 100, 'fish_add': 10, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍"]},
 }
 
 TIERS = list(PRIZE_CONFIG.keys())
@@ -992,6 +993,17 @@ async def give_prize(uid: int, prize_tier: str) -> str:
         return f"{prize_info['chinese']} *{prize_amount}"
 
 
+async def fish_count_prize(uid: int, prize_tier: str) -> Optional[int]:
+    """根据奖品档位计算额外钓鱼次数奖励"""
+    prize_config = PRIZE_CONFIG[prize_tier]
+    count = max(100, int(random.randint(5, 10) * prize_config['fish_add'] * 100))
+    add_count = count * -1  # 负数表示增加钓鱼次数上限
+    if FishingDB.check_and_update_fish_limit(uid, add_count):
+        return count
+    else:
+        return None
+
+
 turntable_cmd = on_command("幸运转盘", aliases={"幸运大转盘"}, priority=5, block=True)
 
 @turntable_cmd.handle()
@@ -1018,9 +1030,11 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     # 抽取奖品
     prize_tier = draw_prize()
     prize_description = await give_prize(uid, prize_tier)
+    fish_count = await fish_count_prize(uid, prize_tier)
     
     result_message = f"\n指针停在了【{prize_tier}】区域！"
     result_message += f"\n您获得了：{prize_description}"
+    result_message += f"\n额外奖励：钓鱼次数+{fish_count}"
     result_message += f"\n您今天还剩下 {remaining_turns} 次机会。"
     
     await turntable_cmd.finish(result_message, at_sender=True)
