@@ -313,9 +313,9 @@ async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: 
     
     current_y = padding
     
-    # 绘制名字
-    img.text((padding, current_y), f"{name}:", fill=(0, 0, 255))
-    current_y += name_height
+    # 绘制名字 (如果需要显示名字，取消注释并调整颜色)
+    # img.text((padding, current_y), f"{name}", fill=(100, 100, 100))
+    # current_y += name_height
     
     if isinstance(content, str):
         content = [{'type': 'text', 'data': {'text': content}}]
@@ -330,11 +330,20 @@ async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: 
         if seg_type == 'text':
             text = seg_data.get('text', '')
             if text:
-                # 简单自动换行 (0.8 为中英文混合估算系数)
-                lines = textwrap.wrap(text, width=int((width - 2 * padding) / (font_size * 0.8))) 
-                for line in lines:
-                    img.text((padding, current_y), line, fill=(0, 0, 0))
-                    current_y += font_size + line_spacing
+                # 简单自动换行 (0.8 为中英文混合估算系数)，保留原有的换行符
+                max_line_chars = int((width - 2 * padding) / (font_size * 0.8))
+                
+                # 先按换行符分割，再对每一行进行 wrap
+                original_lines = text.split('\n')
+                for original_line in original_lines:
+                    wrapped_lines = textwrap.wrap(original_line, width=max_line_chars)
+                    if not wrapped_lines: # 处理空行
+                        current_y += font_size + line_spacing
+                        continue
+                        
+                    for line in wrapped_lines:
+                        img.text((padding, current_y), line, fill=(0, 0, 0))
+                        current_y += font_size + line_spacing
                     
         elif seg_type == 'image':
             image_data = None
