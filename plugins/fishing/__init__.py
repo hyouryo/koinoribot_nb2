@@ -337,7 +337,7 @@ async def handle_buy_bait(
 
 
 # ----- 背包 -----
-bag_cmd = on_command("背包", priority=5, block=True)
+bag_cmd = on_command("背包", aliases={"我的背包"}, priority=5, block=True)
 
 
 @bag_cmd.handle()
