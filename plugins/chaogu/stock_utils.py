@@ -452,7 +452,7 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
         ax.plot(dates, prices, marker='o', markersize=4, linestyle='-', label='价格')
 
         # 设置中文字体 (尝试寻找可用中文字体，防止乱码)
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'sans-serif']
+        plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'WenQuanYi Zen Hei', 'SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'sans-serif']
         plt.rcParams['axes.unicode_minus'] = False
 
         # 标记事件
