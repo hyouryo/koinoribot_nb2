@@ -15,7 +15,6 @@ from nonebot.params import Depends
 import httpx
 import io
 import textwrap
-import platform
 from .build_image import BuildImage
 
 from .uid_manager import get_uid as get_unified_uid
@@ -310,12 +309,7 @@ async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: 
     
     # 初始高度，后续会裁剪
     temp_height = 5000 
-    
-    font_name = "msyh.ttf"
-    if platform.system() == "Linux":
-        font_name = "WenQuanYi Micro Hei"
-        
-    img = BuildImage(width, temp_height, font_size=font_size, color=(255, 255, 255), font=font_name)
+    img = BuildImage(width, temp_height, font_size=font_size, color=(255, 255, 255))
     
     current_y = padding
     
@@ -424,12 +418,7 @@ async def _nodes_to_image(messages: List[Dict[str, Any]]) -> bytes:
         return b""
         
     total_height = sum(img.h for img in images)
-    
-    font_name = "msyh.ttf"
-    if platform.system() == "Linux":
-        font_name = "WenQuanYi Micro Hei"
-        
-    final_img = BuildImage(width, total_height, color=(255, 255, 255), font=font_name)
+    final_img = BuildImage(width, total_height, color=(255, 255, 255))
     
     current_y = 0
     for img in images:

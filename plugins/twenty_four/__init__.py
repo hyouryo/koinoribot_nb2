@@ -8,7 +8,8 @@ from time import time
 from aiofiles import open  # noqa: A004
 from mathparse import mathparse
 from nonebot import on_command
-from nonebot.adapters import Event
+from nonebot.adapters import Event, Message
+from nonebot.params import CommandArg
 from nonebot.plugin import PluginMetadata
 
 from ...tools import get_group_id, get_sender_nickname
@@ -107,7 +108,7 @@ get_twenty_four_answer = on_command("24答", aliases={"24点答题"}, priority=1
 
 
 @get_twenty_four_answer.handle()
-async def twenty_four_answer_handle(event: Event) -> None:
+async def twenty_four_answer_handle(event: Event, args: Message = CommandArg()) -> None:
     # 获取群号
     try:
         group_id = get_group_id(event)
@@ -120,7 +121,7 @@ async def twenty_four_answer_handle(event: Event) -> None:
     if game.is_timeout():
         twenty_four_games.pop(group_id)
         await get_twenty_four_answer.finish("24点游戏时间到~")
-    submit = event.get_message().extract_plain_text().strip()
+    submit = args.extract_plain_text().strip()
     if not submit:
         await get_twenty_four_answer.finish("请在命令后输入算式，例：24答 (1+2)*3/4")
     format_ = format_expression(submit)

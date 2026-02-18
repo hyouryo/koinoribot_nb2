@@ -199,8 +199,8 @@ def draw_digit_legend(bg: BuildImage) -> BuildImage:
     box_s = 14
     line_s = 24
     
-    # 1. Gray
-    new_bg.rectangle((left_m, start_y, left_m + box_s, start_y + box_s), fill=color_light_gray)
+    # 1. Orange
+    new_bg.rectangle((left_m, start_y, left_m + box_s, start_y + box_s), fill=color_orange)
     new_bg.text((left_m + 30, start_y), "数字正确但位置不对", fill=font_color)
     
     # 2. Blue
@@ -501,11 +501,11 @@ async def handle_digit_guess(event: Event, bot: Bot, gid: str, session: Dict, me
         await bot.send(event, f'要猜的数字为{length}位数喔', at_sender=True)
         return
     
-    # 比较结果
+    # 比较结果 (双重遍历以确保逻辑严谨)
+    result_colors = [None] * length
+    ans_list = list(str(answer))
     correct_pos = []
-    is_in_word = []
-    answer_str_copy = answer_str
-    
+
     pic = BuildImage(0, 0, background=str(temp_path / f'{gid}.png'))
     
     if int(message) > answer:
@@ -515,18 +515,27 @@ async def handle_digit_guess(event: Event, bot: Bot, gid: str, session: Dict, me
     else:
         digit_color = font_color
     
+    # 第一遍：处理完全正確 (Blue)
     for i in range(length):
-        digit = BuildImage(0, 0, plain_text=str(message[i]), font=font_bold, font_size=30, font_color=digit_color, is_alpha=True)
-        if message[i] == answer_str_copy[i]:
-            answer_but_list = list(answer_str_copy)
-            answer_but_list[i] = '*'
-            answer_str_copy = ''.join(answer_but_list)
+        if message[i] == ans_list[i]:
+            result_colors[i] = color_blue
+            ans_list[i] = None  # 标记为已匹配
             correct_pos.append(message[i])
+
+    # 第二遍：处理存在但位置不对 (Orange)
+    for i in range(length):
+        if result_colors[i] is None:  # 只处理未匹配的
+            if message[i] in ans_list:
+                result_colors[i] = color_orange
+                ans_list.remove(message[i])  # 消耗一个字符
+                
+    # 绘制结果
+    for i in range(length):
+        digit = BuildImage(0, 0, plain_text=message[i], font=font_bold, font_size=30, font_color=digit_color, is_alpha=True)
+        if result_colors[i] == color_blue:
             pic.rectangle((15 + i * gap, 15 + times * gap, 54 + i * gap, 54 + times * gap), fill=color_blue)
-        elif message[i] in str(answer):
-            answer_str_copy = answer_str_copy.replace(message[i], '*', 1)
-            is_in_word.append(message[i])
-            pic.rectangle((15 + i * gap, 15 + times * gap, 54 + i * gap, 54 + times * gap), fill=color_light_gray)
+        elif result_colors[i] == color_orange:
+            pic.rectangle((15 + i * gap, 15 + times * gap, 54 + i * gap, 54 + times * gap), fill=color_orange)
         pic.paste(digit, (34 + i * gap - int(digit.w / 2), 32 + times * gap - int(digit.h / 2)), alpha=True)
     
     if len(correct_pos) == length:

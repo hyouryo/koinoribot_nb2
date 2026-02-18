@@ -9,40 +9,7 @@ from matplotlib import pyplot as plt
 
 # https://www.osgeo.cn/pillow
 
-from matplotlib import font_manager
-import platform
-
 FONT_PATH = os.path.join(os.path.dirname(__file__), "src/fonts")
-
-
-def get_font_path(font_name: str) -> str:
-    """
-    获取字体路径
-    1. 首先查找本地 fonts 目录
-    2. 如果未找到，尝试作为系统字体名称查找 (使用 matplotlib)
-    """
-    # 1. Check local path
-    local_path = os.path.join(FONT_PATH, font_name)
-    if os.path.exists(local_path):
-        return local_path
-    
-    # 2. Try to find system font
-    try:
-        # matplotlib findfont returns a path
-        font_path = font_manager.findfont(font_manager.FontProperties(fname=font_name))
-        if os.path.exists(font_path):
-             return font_path
-        
-        # If not found by filename, try by family name
-        font_path = font_manager.findfont(font_manager.FontProperties(family=font_name))
-        if os.path.exists(font_path):
-             return font_path
-             
-    except Exception:
-        pass
-        
-    # Fallback to local default if everything fails, or return the original name to let PIL fail/try
-    return local_path
 
 '''
 def compare_image_with_hash(
@@ -190,20 +157,7 @@ class BuildImage:
         self.paste_image_height = int(paste_image_height)
         self.current_w = 0
         self.current_h = 0
-        self.current_w = 0
-        self.current_h = 0
-        
-        font_path = get_font_path(font)
-        try:
-            self.font = ImageFont.truetype(font_path, int(font_size))
-        except Exception:
-            # Fallback to a default font if the specific one fails
-            try:
-                self.font = ImageFont.truetype(str(os.path.join(FONT_PATH, "yz.ttf")), int(font_size))
-            except Exception:
-                 # Last resort
-                self.font = ImageFont.load_default()
-                
+        self.font = ImageFont.truetype(str(os.path.join(FONT_PATH, font)), int(font_size))
         if not plain_text and not color:
             color = (255, 255, 255)
         self.background = background
