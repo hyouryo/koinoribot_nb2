@@ -786,7 +786,7 @@ async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_
     luckygold = money.get_user_money(uid, 'luckygold') or 0
     
     if luckygold < 1:
-        await gamble_continue_cmd.finsih("你没有足够的幸运币继续。发送 见好就收 可以退出赌局~", at_sender=True)
+        await gamble_continue_cmd.finish("你没有足够的幸运币继续。发送 见好就收 可以退出赌局~", at_sender=True)
     
     money.reduce_user_money(uid, 'luckygold', 1)
     
@@ -1020,7 +1020,7 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     # 检查幸运币
     lucky_coins = money.get_user_money(uid, 'luckygold') or 0
     if lucky_coins < 1:
-        await turntable_cmd.finsih("您的幸运币不足，无法启动转盘哦。", at_sender=True)
+        await turntable_cmd.finish("您的幸运币不足，无法启动转盘哦。", at_sender=True)
     
     money.reduce_user_money(uid, 'luckygold', 1)
     remaining_turns = await record_turntable_spin(uid)
@@ -1046,15 +1046,15 @@ async def handle_dibao(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     """领取低保"""
     dibao_amount = getattr(config, 'dibao', 3000)
     if dibao_amount == 0:
-        await dibao_cmd.finsih("低保功能维护中，请稍候再试。", at_sender=True)
+        await dibao_cmd.finish("低保功能维护中，请稍候再试。", at_sender=True)
     
     # 检查今天是否已领
     if not await check_daily_prek(uid):
-        await dibao_cmd.finsih("你今天已经领过了，明天再来吧。", at_sender=True)
+        await dibao_cmd.finish("你今天已经领过了，明天再来吧。", at_sender=True)
     
     # 检查是否在赌博中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await dibao_cmd.finsih("赌徒不能领取低保哦~", at_sender=True)
+        await dibao_cmd.finish("赌徒不能领取低保哦~", at_sender=True)
     
     # 检查股票持仓
     user_portfolio = await get_user_portfolio(uid)
@@ -1065,7 +1065,7 @@ async def handle_dibao(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     # 检查金币
     user_gold = money.get_user_money(uid, 'gold') or 0
     if user_gold > 4999:
-        await dibao_cmd.finsih("这么富，还想骗低保？", at_sender=True)
+        await dibao_cmd.finish("这么富，还想骗低保？", at_sender=True)
     if user_gold < 0:
         await dibao_cmd.finish("欠债/失信用户，禁止操作。", at_sender=True)
     
@@ -1195,10 +1195,10 @@ async def _do_transfer(cmd, sender_uid: int, target_uid: int, amount: int):
         await cmd.finish('\n无法给自己转账', at_sender=True)
     
     if sender_uid in gambling_sessions and gambling_sessions[sender_uid].get('active', False):
-        await cmd.finsih("你正处于豪赌过程中，不能转账哦~", at_sender=True)
+        await cmd.finish("你正处于豪赌过程中，不能转账哦~", at_sender=True)
     
     if target_uid in gambling_sessions and gambling_sessions[target_uid].get('active', False):
-        await cmd.finsih("对方正处于豪赌过程中，不能转账哦~", at_sender=True)
+        await cmd.finish("对方正处于豪赌过程中，不能转账哦~", at_sender=True)
     
     if amount < 20:
         await cmd.finish('错误金额，最低转账20金币', at_sender=True)

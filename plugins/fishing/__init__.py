@@ -291,7 +291,7 @@ async def handle_thousand_fish(
     wallet: UserWallet = Depends(wallet_manager),
 ) -> None:
     if not is_su(uid):
-        await thousand_fish_cmd.finsih("权限不足", at_sender=True)  
+        await thousand_fish_cmd.finish("权限不足", at_sender=True)  
     await FishingManager.multi_fishing(
         uid,
         matcher,
@@ -320,15 +320,15 @@ async def handle_buy_bait(
     num = int(message) if message.isdigit() else 1
 
     if num > 50000000:
-        await buy_bait_cmd.finsih("一次只能购买50000000个鱼饵喔", at_sender=True)
+        await buy_bait_cmd.finish("一次只能购买50000000个鱼饵喔", at_sender=True)
 
     if num <= 0:
-        await buy_bait_cmd.finsih("数量必须大于0", at_sender=True)
+        await buy_bait_cmd.finish("数量必须大于0", at_sender=True)
 
     cost = num * config.bait_price
 
     if user_wallet.gold < cost:
-        await buy_bait_cmd.finsih("金币不足喔...", at_sender=True)
+        await buy_bait_cmd.finish("金币不足喔...", at_sender=True)
 
     user_wallet.gold -= cost
     await FishingManager.increase_value(uid, "fish", "🍙", num)
@@ -370,11 +370,11 @@ async def handle_sell(
     parts = message.split()
 
     if not parts:
-        await sell_cmd.finsih("用法: 出售 鱼emoji [数量]", at_sender=True)
+        await sell_cmd.finish("用法: 出售 鱼emoji [数量]", at_sender=True)
 
     fish = parts[0]
     if fish not in FISH_LIST + ["🍙"]:
-        await sell_cmd.finsih("这不是可出售的物品", at_sender=True)
+        await sell_cmd.finish("这不是可出售的物品", at_sender=True)
 
     num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
 
@@ -430,7 +430,7 @@ async def handle_sell_small(
             at_sender=True,
         )
     else:
-        await sell_small_cmd.finsih("没有可出售的小鱼", at_sender=True)
+        await sell_small_cmd.finish("没有可出售的小鱼", at_sender=True)
 
 
 # ----- 一键出售 -----
@@ -466,7 +466,7 @@ async def handle_sell_all(
             at_sender=True,
         )
     else:
-        await sell_all_cmd.finsih("没有可出售的鱼", at_sender=True)
+        await sell_all_cmd.finish("没有可出售的鱼", at_sender=True)
 
 
 # ----- 放生 -----
@@ -481,7 +481,7 @@ async def handle_free(
     parts = message.split()
 
     if not parts or parts[0] not in FISH_LIST:
-        await free_cmd.finsih("用法: 放生 鱼emoji [数量]", at_sender=True)
+        await free_cmd.finish("用法: 放生 鱼emoji [数量]", at_sender=True)
 
     fish = parts[0]
     num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
@@ -557,12 +557,12 @@ async def handle_buy_bottle(
     num = int(message) if message.isdigit() else 1
 
     if num > 10:
-        await buy_bottle_cmd.finsih("一次只能购买10个漂流瓶喔", at_sender=True)
+        await buy_bottle_cmd.finish("一次只能购买10个漂流瓶喔", at_sender=True)
 
     cost = num * config.bottle_price
 
     if user_wallet.gold < cost:
-        await buy_bottle_cmd.finsih("金币不足喔...", at_sender=True)
+        await buy_bottle_cmd.finish("金币不足喔...", at_sender=True)
 
     user_wallet.gold -= cost
     await FishingManager.increase_value(uid, "fish", "✉", num)
@@ -620,14 +620,14 @@ async def handle_throw_bottle(
     user_info = await FishingManager.get_user_info(uid)
 
     if user_info["fish"].get("✉", 0) <= 0:
-        await throw_bottle_cmd.finsih("背包里没有漂流瓶喔", at_sender=True)
+        await throw_bottle_cmd.finish("背包里没有漂流瓶喔", at_sender=True)
 
     content = args.extract_plain_text()
     if content == "":
-        await throw_bottle_cmd.finsih("漂流瓶内容不能为空喔", at_sender=True)
+        await throw_bottle_cmd.finish("漂流瓶内容不能为空喔", at_sender=True)
 
     if len(content) > 30:
-        await throw_bottle_cmd.finsih("内容太长了（最多30字）", at_sender=True)
+        await throw_bottle_cmd.finish("内容太长了（最多30字）", at_sender=True)
 
     # 扣除漂流瓶
     await FishingManager.decrease_value(uid, "fish", "✉", 1, user_info)
@@ -672,7 +672,7 @@ async def handle_pick_bottle(bot: Bot, event: Event, uid: int = Depends(get_uid)
     bottle_id, bottle = BottleManager.pick_random_bottle()
 
     if bottle_id is None:
-        await pick_bottle_cmd.finsih("没有可捞取的漂流瓶", at_sender=True)
+        await pick_bottle_cmd.finish("没有可捞取的漂流瓶", at_sender=True)
 
     # 扣除水之心
     await FishingManager.decrease_value(
@@ -726,7 +726,7 @@ async def handle_bottle_count() -> None:
     count = BottleManager.get_bottle_amount()
 
     if count == 0:
-        await bottle_count_cmd.finsih("目前水中没有漂流瓶...")
+        await bottle_count_cmd.finish("目前水中没有漂流瓶...")
     else:
         await bottle_count_cmd.finish(f"当前一共有{count}个漂流瓶~")
 
@@ -755,17 +755,17 @@ async def handle_comment_bottle(
     parts = message.split(" ", 1)
 
     if len(parts) != 2:
-        await comment_bottle_cmd.finsih("用法: 评论 漂流瓶ID 内容", at_sender=True)
+        await comment_bottle_cmd.finish("用法: 评论 漂流瓶ID 内容", at_sender=True)
 
     bottle_id = parts[0]
     content = parts[1]
 
     if len(content) > 20:
-        await comment_bottle_cmd.finsih("评论内容太长了（最多20字）", at_sender=True)
+        await comment_bottle_cmd.finish("评论内容太长了（最多20字）", at_sender=True)
 
     # 使用 BottleManager 添加评论
     if not BottleManager.add_comment(bottle_id, uid, content):
-        await comment_bottle_cmd.finsih("找不到这个漂流瓶", at_sender=True)
+        await comment_bottle_cmd.finish("找不到这个漂流瓶", at_sender=True)
 
     user_wallet.gold -= config.comment_price
     comm_freq.start_cd(uid)
