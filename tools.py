@@ -113,11 +113,21 @@ async def send_group_forward_msg(
         await bot.send_group_forward_msg(group_id=event.group_id, messages=messages)
     else:
         # QQ-Bot 降级为普通消息
-        for msg in messages:
-            if isinstance(msg, dict) and 'data' in msg:
-                content = msg['data'].get('content', '')
-                if content:
-                    await bot.send(event, str(content))
+        for node in messages:
+            if isinstance(node, dict) and 'data' in node:
+                content = node['data'].get('content', [])
+                
+                msg_to_send = ""
+                if isinstance(content, list):
+                    for segment in content:
+                        if isinstance(segment, dict):
+                            if segment.get('type') == 'text':
+                                msg_to_send += segment.get('data', {}).get('text', '')
+                elif isinstance(content, str):
+                    msg_to_send = content
+                
+                if msg_to_send:
+                    await bot.send(event, msg_to_send)
 
 
 async def build_forward_node(
