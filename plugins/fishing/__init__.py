@@ -627,8 +627,8 @@ async def handle_throw_bottle(
     if content == "":
         await throw_bottle_cmd.finish("\n漂流瓶内容不能为空喔", at_sender=True)
 
-    if len(content) > 500:
-        await throw_bottle_cmd.finish("\n内容太长了（最多500字）", at_sender=True)
+    if len(content) > 30:
+        await throw_bottle_cmd.finish("\n内容太长了（最多30字）", at_sender=True)
 
     # 扣除漂流瓶
     await FishingManager.decrease_value(uid, "fish", "✉", 1, user_info)
@@ -749,8 +749,8 @@ async def handle_comment_bottle(
     bottle_id = parts[0]
     content = parts[1]
 
-    if len(content) > 100:
-        await comment_bottle_cmd.finish("\n评论内容太长了（最多100字）", at_sender=True)
+    if len(content) > 20:
+        await comment_bottle_cmd.finish("\n评论内容太长了（最多20字）", at_sender=True)
 
     # 使用 BottleManager 添加评论
     if not BottleManager.add_comment(bottle_id, uid, content):
