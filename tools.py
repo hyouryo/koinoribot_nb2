@@ -117,14 +117,39 @@ async def send_group_forward_msg(
             if isinstance(node, dict) and 'data' in node:
                 content = node['data'].get('content', [])
                 
-                msg_to_send = ""
+                msg_to_send = qq.Message()
                 if isinstance(content, list):
                     for segment in content:
                         if isinstance(segment, dict):
-                            if segment.get('type') == 'text':
-                                msg_to_send += segment.get('data', {}).get('text', '')
+                            seg_type = segment.get('type')
+                            seg_data = segment.get('data', {})
+                            
+                            if seg_type == 'text':
+                                text = seg_data.get('text', '')
+                                if text:
+                                    msg_to_send.append(qq.MessageSegment.text(text))
+                            elif seg_type == 'image':
+                                file_uri = seg_data.get('file', '')
+                                if file_uri.startswith('base64://'):
+                                    try:
+                                        b64_data = file_uri.replace('base64://', '')
+                                        img_bytes = base64.b64decode(b64_data)
+                                        msg_to_send.append(qq.MessageSegment.file_image(img_bytes))
+                                    except Exception as e:
+                                        logger.error(f"解析合并转发图片失败: {e}")
+                                        msg_to_send.append(qq.MessageSegment.text("[图片解析失败]"))
+                                elif file_uri.startswith('http'):
+                                    msg_to_send.append(qq.MessageSegment.image(file_uri))
+                                else:
+                                    # 尝试获取 url 字段
+                                    url = seg_data.get('url')
+                                    if url:
+                                        msg_to_send.append(qq.MessageSegment.image(url))
+                                    else:
+                                        msg_to_send.append(qq.MessageSegment.text("[不支持的图片格式]"))
+                                        
                 elif isinstance(content, str):
-                    msg_to_send = content
+                    msg_to_send.append(qq.MessageSegment.text(content))
                 
                 if msg_to_send:
                     await bot.send(event, msg_to_send)
