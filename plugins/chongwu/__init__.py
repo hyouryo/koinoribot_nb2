@@ -1166,7 +1166,7 @@ async def handle_luxian_help(event: Event, bot: Bot):
         {"type": "image", "data": {"file": f"base64://{luxian2_img.base64}"}}
     ]
     pet_luxian3 = "宠物处于『成长体』时，可使用 重置进化路线 来切换进化分支（需消耗1个时之泪）"
-    pet_luxian4 = "当前版本中，同一幼年体的不同的进化分支仅影响种族名称，没有数值差异"
+    pet_luxian4 = "当前版本中，同一幼年体的不同的进化分支，没有数值差异"
 
     msgs = [pet_luxian1, pet_luxian2, pet_luxian3, pet_luxian4]
 
@@ -1177,7 +1177,7 @@ async def handle_luxian_help(event: Event, bot: Bot):
         logger.error(f"进化分支帮助合并消息发送失败: {e}")
         await luxian_cmd.finish("幼年体→→成长体（三选一），成长体→→成年体（固定路线）\n"
                                 "宠物处于『成长体』时，可使用 重置进化路线 来切换进化分支（需消耗1个时之泪）\n"
-                                "当前版本中，同一幼年体的不同的进化分支，无数值差异")
+                                "当前版本中，同一幼年体的不同的进化分支，没有数值差异")
 
 
 # ===== 初始化 =====
