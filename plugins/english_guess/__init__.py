@@ -325,7 +325,7 @@ async def handle_quit(event: Event, bot: Bot, gid: str = Depends(get_group_id)):
     if not session:
         await quit_cmd.finish("当前没有进行中的猜单词游戏喔~", at_sender=True)
     
-    game_type = session.get('type')
+    close_session(gid)
     if game_type == '英语单词':
         word = session['word']
         pos = session['pos']
@@ -342,7 +342,7 @@ async def handle_quit(event: Event, bot: Bot, gid: str = Depends(get_group_id)):
         sample = f"\n{session.get('sample', '')}" if session.get('sample') else ''
         await quit_cmd.finish(f'已退出~\n正确答案是{kana}\n{yomi}{mean}{sample}', at_sender=True)
     
-    close_session(gid)
+
 
 
 # ===== 获取提示 =====
