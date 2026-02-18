@@ -651,7 +651,7 @@ pick_bottle_cmd = on_command("捡漂流瓶", priority=5, block=True)
 
 
 @pick_bottle_cmd.handle()
-async def handle_pick_bottle(uid: int = Depends(get_uid)) -> None:
+async def handle_pick_bottle(bot: Bot, event: Event, uid: int = Depends(get_uid)) -> None:
     if not get_freq.check(uid):
         await pick_bottle_cmd.finish(
             f"休息一会再捡吧~({int(get_freq.left_time(uid))}s)"
@@ -684,26 +684,39 @@ async def handle_pick_bottle(uid: int = Depends(get_uid)) -> None:
 
     get_freq.start_cd(uid)
 
-    # 格式化漂流瓶内容
+    # 格式化漂流瓶正文
     create_time = datetime.datetime.fromtimestamp(bottle["time"]).strftime(
         "%Y-%m-%d %H:%M"
     )
 
-    msg = f"🍾 漂流瓶 #{bottle_id}\n"
-    msg += f"━━━━━━━━━━\n"
-    msg += f"{bottle['content']}\n"
-    msg += f"━━━━━━━━━━\n"
-    msg += f"投放时间: {create_time}\n"
-    msg += f"被捞起次数: {bottle['pick_count']}"
+    bottle_msg = f"🍾 漂流瓶 #{bottle_id}\n"
+    bottle_msg += f"━━━━━━━━━━\n"
+    bottle_msg += f"{bottle['content']}\n"
+    bottle_msg += f"━━━━━━━━━━\n"
+    bottle_msg += f"投放者UID: {bottle.get('uid', '未知')}\n"
+    bottle_msg += f"投放时间: {create_time}\n"
+    bottle_msg += f"被捞起次数: {bottle['pick_count']}"
 
-    # 显示评论
+    # 构建合并转发消息
+    forward_messages = [bottle_msg]
+
+    # 添加评论节点
     comments = bottle.get("comments", [])
     if comments:
-        msg += f"\n\n💬 评论 ({len(comments)}条):\n"
-        for c in comments[-3:]:  # 最多显示最近3条
-            msg += f"• {c['content']}\n"
+        for c in comments:
+            comment_time = datetime.datetime.fromtimestamp(c.get("time", 0)).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            comment_msg = f"💬 [UID: {c.get('uid', '未知')}]\n{c['content']}\n— {comment_time}"
+            forward_messages.append(comment_msg)
 
-    await pick_bottle_cmd.finish(msg)
+    try:
+        chain = await build_forward_chain(bot, forward_messages)
+        await send_group_forward_msg(event, bot, chain)
+    except Exception as e:
+        logger.error(f"捡漂流瓶合并消息发送失败: {e}")
+        # 降级为普通消息
+        await pick_bottle_cmd.finish(bottle_msg)
 
 
 # ----- 漂流瓶数量 -----
