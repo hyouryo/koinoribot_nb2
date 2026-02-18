@@ -13,6 +13,7 @@ from nonebot.log import logger
 from nonebot.params import Depends
 
 from .uid_manager import get_uid as get_unified_uid
+from .uid_manager import get_uid_by_external_id
 
 
 # ===== UID 相关 =====
@@ -183,3 +184,62 @@ async def build_forward_chain(
         node = await build_forward_node(bot, msg, user_id)
         chain.append(node)
     return chain
+
+# ===== 用户at相关 =====
+def get_at_uid_onebot(message_segment:onebot.MessageSegment) -> str:
+    """
+    获取 onebot v11 的 @ 消息中的 uid
+
+    Args:
+        message_segment: onebot v11 的 @ 消息
+
+    Returns:
+        uid: 消息中的 uid
+
+    Raises:
+        ValueError: 消息不是 @ 消息
+    """
+    if message_segment.type == "at":
+        return message_segment.data["qq"]
+    raise ValueError("消息不是at消息")
+
+
+def get_at_uid_qqbot(message_segment:qq.MessageSegment) -> str:
+    """
+    获取 qqbot 的 @ 消息中的 uid
+
+    Args:
+        message_segment: qqbot 的 @ 消息
+
+    Returns:
+        uid: 消息中的 uid
+
+    Raises:
+        ValueError: 消息不是 @ 消息
+    """
+    if message_segment.type == "mention_user":
+        return message_segment.data["user_id"]
+    raise ValueError("消息不是at消息")
+
+def get_at_uid(message_segment:onebot.MessageSegment | qq.MessageSegment) -> Optional[int]:
+    """
+    获取消息中的 uid
+
+    Args:
+        message_segment: 消息
+
+    Returns:
+        uid: 消息中的 uid, None时表示没有账户
+
+    Raises:
+        ValueError: 消息不是at消息
+    """
+
+    uuid = None
+    if isinstance(message_segment, onebot.MessageSegment):
+        uid = get_at_uid_onebot(message_segment)
+        uuid = get_uid_by_external_id(platform="onebot", external_id=uid)
+    elif isinstance(message_segment, qq.MessageSegment):
+        uid = get_at_uid_qqbot(message_segment)
+        uuid = get_uid_by_external_id(platform="qqbot", external_id=uid)
+    return uuid

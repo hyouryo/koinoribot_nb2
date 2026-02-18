@@ -24,7 +24,7 @@ from nonebot import logger
 
 from ... import money
 from ...koinori_config import config
-from ...tools import get_uid, send_group_forward_msg, build_forward_chain
+from ...tools import get_uid, send_group_forward_msg, build_forward_chain, get_at_uid
 from ..fishing.util import DatabaseManager as FishingDB
 
 from .stock_utils import (
@@ -1084,7 +1084,7 @@ async def handle_dibao(event: Event, bot: Bot, uid: int = Depends(get_uid)):
         await dibao_cmd.finish(f"\n已领取{dibao_amount}金币。\n你现在有{user_gold + dibao_amount}金币", at_sender=True)
 
 
-# ===== 转账功能 (uid/qq 两种模式) =====
+# ===== 转账功能 (uid/qq/at 三种模式) =====
 TRANSFER_FEE_RATE = getattr(config, 'transfer_fee', 0.1)
 MIN_REST = getattr(config, 'min_rest', 1000)
 
@@ -1133,6 +1133,23 @@ async def handle_transfer_qq(event: Event, bot: Bot, uid: int = Depends(get_uid)
         await transfer_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
     
     await _do_transfer(transfer_qq_cmd, uid, target_uid, amount)
+
+# 转账 at [金额]
+transfer_at_cmd = on_command("转账", priority=5, block=True)
+@transfer_at_cmd.handle()
+async def handle_transfer_at(uid: int = Depends(get_uid), args: Message = CommandArg()):
+    """通过at转账"""
+    try:
+        target_uid = get_at_uid(args[0])
+    except ValueError:
+        await transfer_at_cmd.finish("格式：转账 at [金额]", at_sender=True)
+    if target_uid is None:
+        await transfer_at_cmd.finish("找不到at对应的账户", at_sender=True)
+    try:
+        amount = int(args[1].data["text"])
+    except ValueError:
+        await transfer_at_cmd.finish("金额必须是数字！", at_sender=True)
+    await _do_transfer(transfer_at_cmd, uid, target_uid, amount)
 
 
 async def _do_transfer(cmd, sender_uid: int, target_uid: int, amount: int):
