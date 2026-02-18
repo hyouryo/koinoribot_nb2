@@ -1158,11 +1158,11 @@ async def handle_luxian_help(event: Event, bot: Bot):
 
     # 构建 4 个消息节点，合并图文
     pet_luxian1 = [
-        {"type": "text", "data": {"text": "幼年体→→成长体（三选一）：\n"}},
+        {"type": "text", "data": {"text": "幼年体→→成长体（三选一）\n"}},
         {"type": "image", "data": {"file": f"base64://{luxian1_img.base64}"}}
     ]
     pet_luxian2 = [
-        {"type": "text", "data": {"text": "成长体→→成年体（固定路线）：\n"}},
+        {"type": "text", "data": {"text": "成长体→→成年体（固定路线）\n"}},
         {"type": "image", "data": {"file": f"base64://{luxian2_img.base64}"}}
     ]
     pet_luxian3 = "宠物处于『成长体』时，可使用 重置进化路线 来切换进化分支（需消耗1个时之泪）"

@@ -12,6 +12,10 @@ from nonebot.adapters import Event, Bot
 from nonebot.adapters import qq
 from nonebot.log import logger
 from nonebot.params import Depends
+import httpx
+import io
+import textwrap
+from .build_image import BuildImage
 
 from .uid_manager import get_uid as get_unified_uid
 from .uid_manager import get_uid_by_external_id
@@ -113,6 +117,16 @@ async def send_group_forward_msg(
         await bot.send_group_forward_msg(group_id=event.group_id, messages=messages)
     else:
         # QQ-Bot 降级为普通消息
+        # 尝试转换为图片发送
+        try:
+            img_bytes = await _nodes_to_image(messages)
+            if img_bytes:
+                await bot.send(event, qq.MessageSegment.file_image(img_bytes))
+                return
+        except Exception as e:
+            logger.error(f"合并转发转图片失败: {e}")
+
+        # 图片生成失败，回退到逐条发送
         for node in messages:
             if isinstance(node, dict) and 'data' in node:
                 content = node['data'].get('content', [])
@@ -280,8 +294,132 @@ def get_at_uid(message_segment:onebot.MessageSegment | qq.MessageSegment) -> Opt
         uuid = get_uid_by_external_id(platform="qqbot", external_id=uid)
     return uuid
 
+# ===== 图片生成辅助 =====
 
-# ===== 图片消息段构建 =====
+async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: int = 20) -> BuildImage:
+    """创建单个消息节点的图片"""
+    data = node.get('data', {})
+    name = data.get('name', '用户')
+    content = data.get('content', [])
+    
+    # 估算高度
+    padding = 10
+    name_height = 30
+    line_spacing = 5
+    
+    # 初始高度，后续会裁剪
+    temp_height = 5000 
+    img = BuildImage(width, temp_height, font_size=font_size, color=(255, 255, 255))
+    
+    current_y = padding
+    
+    # 绘制名字
+    img.text((padding, current_y), f"{name}:", fill=(0, 0, 255))
+    current_y += name_height
+    
+    if isinstance(content, str):
+        content = [{'type': 'text', 'data': {'text': content}}]
+        
+    for segment in content:
+        if not isinstance(segment, dict):
+            continue
+            
+        seg_type = segment.get('type')
+        seg_data = segment.get('data', {})
+        
+        if seg_type == 'text':
+            text = seg_data.get('text', '')
+            if text:
+                # 简单自动换行 (0.8 为中英文混合估算系数)
+                lines = textwrap.wrap(text, width=int((width - 2 * padding) / (font_size * 0.8))) 
+                for line in lines:
+                    img.text((padding, current_y), line, fill=(0, 0, 0))
+                    current_y += font_size + line_spacing
+                    
+        elif seg_type == 'image':
+            image_data = None
+            file_uri = seg_data.get('file', '')
+            url = seg_data.get('url', '')
+            
+            if file_uri.startswith('base64://'):
+                try:
+                    b64_data = file_uri.replace('base64://', '')
+                    image_data = base64.b64decode(b64_data)
+                except Exception:
+                    pass
+            elif file_uri.startswith('http'):
+                url = file_uri
+            elif not url and file_uri:
+                 # 尝试直接作为url
+                 if file_uri.startswith('http'):
+                     url = file_uri
+
+            if not image_data and url:
+                async with httpx.AsyncClient() as client:
+                    try:
+                        resp = await client.get(url, timeout=10)
+                        if resp.status_code == 200:
+                            image_data = resp.content
+                    except Exception:
+                        pass
+            
+            if image_data:
+                try:
+                    from PIL import Image
+                    pic = Image.open(io.BytesIO(image_data))
+                    # 调整图片大小以适应宽度
+                    pic_w, pic_h = pic.size
+                    max_w = width - 2 * padding
+                    if pic_w > max_w:
+                        ratio = max_w / pic_w
+                        new_h = int(pic_h * ratio)
+                        pic = pic.resize((max_w, new_h))
+                        pic_w, pic_h = max_w, new_h
+                        
+                    img.paste(pic, (padding, current_y))
+                    current_y += pic_h + line_spacing
+                except Exception:
+                    img.text((padding, current_y), "[图片加载失败]", fill=(255, 0, 0))
+                    current_y += font_size + line_spacing
+            else:
+                if seg_type == 'image':
+                     img.text((padding, current_y), "[图片]", fill=(100, 100, 100))
+                     current_y += font_size + line_spacing
+                     
+    # 裁剪多余部分
+    if current_y + padding < temp_height:
+        img.crop((0, 0, width, current_y + padding))
+        
+    return img
+
+async def _nodes_to_image(messages: List[Dict[str, Any]]) -> bytes:
+    """将消息链转换为长图"""
+    images = []
+    width = 600
+    
+    for node in messages:
+        try:
+            img = await _create_node_image(node, width=width)
+            images.append(img)
+        except Exception as e:
+            logger.warning(f"生成节点图片失败: {e}")
+            continue
+            
+    if not images:
+        return b""
+        
+    total_height = sum(img.h for img in images)
+    final_img = BuildImage(width, total_height, color=(255, 255, 255))
+    
+    current_y = 0
+    for img in images:
+        final_img.paste(img.markImg, (0, current_y))
+        current_y += img.h
+        
+    output = io.BytesIO()
+    final_img.markImg.save(output, format='PNG')
+    return output.getvalue()
+
 
 def build_image_msg(event: Event, image_data: Union[bytes, str]):
     """
