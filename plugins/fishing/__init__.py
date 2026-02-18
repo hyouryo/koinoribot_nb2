@@ -8,7 +8,6 @@
 
 import datetime
 import random
-import time
 
 from nonebot import get_driver, logger, on_command
 from nonebot.adapters import Bot, Event, Message
@@ -634,9 +633,8 @@ async def handle_throw_bottle(
     await FishingManager.decrease_value(uid, "fish", "✉", 1, user_info)
     await FishingManager.save_user_info(uid, user_info)
 
-    # 生成漂流瓶ID并保存
-    bottle_id = str(int(time.time() * 1000) % 100000000)
-    BottleManager.create_bottle(bottle_id, uid, group_id, content)
+    # 生成漂流瓶并保存（ID由数据库自增生成）
+    bottle_id = BottleManager.create_bottle("", uid, group_id, content)
 
     throw_freq.start_cd(uid)
 

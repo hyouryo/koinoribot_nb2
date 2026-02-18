@@ -68,7 +68,38 @@ class DatabaseManager:
             )
         ''')
 
-        
+        # 漂流瓶主表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bottles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uid INTEGER NOT NULL,
+                group_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                pick_count INTEGER DEFAULT 0,
+                deleted INTEGER DEFAULT 0,
+                created_time INTEGER NOT NULL
+            )
+        ''')
+
+        # 漂流瓶评论表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bottle_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bottle_id INTEGER NOT NULL,
+                uid INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                created_time INTEGER NOT NULL,
+                FOREIGN KEY (bottle_id) REFERENCES bottles(id) ON DELETE CASCADE
+            )
+        ''')
+
+        # 确保 bottles 的 AUTOINCREMENT 从 10001 开始
+        cursor.execute("SELECT COUNT(*) FROM bottles")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                "INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES ('bottles', 10000)"
+            )
+
         conn.commit()
         conn.close()
         cls._db_initialized = True
