@@ -1156,15 +1156,19 @@ async def handle_luxian_help(event: Event, bot: Bot):
     luxian1_img = get('chongwu/luxian/luxian1.png')
     luxian2_img = get('chongwu/luxian/luxian2.png')
 
-    # 构建 6 个消息节点，严格对应 old_bot
-    pet_luxian1 = "幼年体→→成长体（三选一）："
-    pet_luxian2 = [{"type": "image", "data": {"file": f"base64://{luxian1_img.base64}"}}]
-    pet_luxian3 = "成长体→→成年体（固定路线）："
-    pet_luxian4 = [{"type": "image", "data": {"file": f"base64://{luxian2_img.base64}"}}]
-    pet_luxian5 = "宠物处于『成长体』时，可使用 重置进化路线 来切换进化分支（需消耗1个时之泪）"
-    pet_luxian6 = "当前版本中，同一幼年体的不同的进化分支仅影响种族名称，没有数值差异"
+    # 构建 4 个消息节点，合并图文
+    pet_luxian1 = [
+        {"type": "text", "data": {"text": "幼年体→→成长体（三选一）：\n"}},
+        {"type": "image", "data": {"file": f"base64://{luxian1_img.base64}"}}
+    ]
+    pet_luxian2 = [
+        {"type": "text", "data": {"text": "成长体→→成年体（固定路线）：\n"}},
+        {"type": "image", "data": {"file": f"base64://{luxian2_img.base64}"}}
+    ]
+    pet_luxian3 = "宠物处于『成长体』时，可使用 重置进化路线 来切换进化分支（需消耗1个时之泪）"
+    pet_luxian4 = "当前版本中，同一幼年体的不同的进化分支仅影响种族名称，没有数值差异"
 
-    msgs = [pet_luxian1, pet_luxian2, pet_luxian3, pet_luxian4, pet_luxian5, pet_luxian6]
+    msgs = [pet_luxian1, pet_luxian2, pet_luxian3, pet_luxian4]
 
     try:
         chain = await build_forward_chain(bot, msgs)
