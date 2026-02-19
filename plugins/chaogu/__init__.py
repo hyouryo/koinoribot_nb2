@@ -1030,7 +1030,7 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     prize_description = await give_prize(uid, prize_tier)
     fish_count = await fish_count_prize(uid, prize_tier)
     
-    result_message = f"\n指针停在了【{prize_tier}】区域！"
+    result_message = f"指针停在了【{prize_tier}】区域！"
     result_message += f"\n您获得了：{prize_description}"
     result_message += f"\n额外奖励：钓鱼次数+{fish_count}"
     result_message += f"\n您今天还剩下 {remaining_turns} 次机会。"

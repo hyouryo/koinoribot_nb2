@@ -24,8 +24,8 @@ _db_initialized = False
 
 # 默认初始资产
 DEFAULT_ASSETS = {
-    "gold": 5000,  # 金币
-    "luckygold": 6,  # 幸运币
+    "gold": 7000,  # 金币
+    "luckygold": 3,  # 幸运币
     "starstone": 12500,  # 星星
     "kirastone": 10,  # 羽毛石/宝石
     "last_login": 0,  # 最后签到日期
