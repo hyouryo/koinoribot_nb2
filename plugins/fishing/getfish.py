@@ -302,7 +302,7 @@ class FishingManager:
         value = cls.cal_all_fish_value(result_summary)
 
         # ===== 构建钓鱼结果消息（放入合并转发） =====
-        summary_message = f"🎣 {command_name}结果：\n"
+        summary_message = f"你的{command_name}结果：\n"
         summary_message += f"发送 概率公示 可查活动和概率\n"
         if auto_buy:
             summary_message += f"(已自动购买{cost}个鱼饵~)\n"
