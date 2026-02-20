@@ -496,3 +496,74 @@ async def handle_unbind_confirm(
         f"解绑成功！你在当前平台的新uid为 {new_uid}，原uid={uid}的数据保留在原账号中。",
         at_sender=True
     )
+
+
+# ===== 上传头像 =====
+upload_avatar_cmd = on_command("上传头像", priority=5, block=True)
+
+
+@upload_avatar_cmd.handle()
+async def handle_upload_avatar(
+    event: Event, 
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
+    """处理上传头像命令"""
+    # 从消息中提取图片URL
+    image_url = None
+    
+    # 尝试从原始消息中提取图片
+    try:
+        # OneBot v11 或 QQBot 格式
+        for seg in event.message:
+            if seg.type == "image":
+                image_url = seg.data.get("url") or seg.data.get("file")
+                break
+    except:
+        pass
+    
+    if not image_url:
+        await upload_avatar_cmd.finish("请加上图片一起发送哦~", at_sender=True)
+    
+    # 下载并保存裁剪图片
+    import aiohttp
+    import os
+    from io import BytesIO
+    from PIL import Image
+    from .aslogin_v3 import get_src_path
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url) as r:
+                content = await r.read()
+                
+        img = Image.open(BytesIO(content)).convert("RGBA")
+        w, h = img.size
+        
+        # 居中裁剪为正方形 (1:1 取中间部分)
+        length = min(w, h)
+        left = (w - length) // 2
+        top = (h - length) // 2
+        right = left + length
+        bottom = top + length
+        img = img.crop((left, top, right, bottom))
+        
+        # 压缩图片以节省空间并统一大小
+        if hasattr(Image, 'Resampling'):
+            resample_method = Image.Resampling.LANCZOS
+        else:
+            resample_method = Image.ANTIALIAS
+        img = img.resize((256, 256), resample_method)
+        
+        # 保存为 png
+        srcpath = get_src_path()
+        save_dir = os.path.join(srcpath, "avatar")
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, f"{uid}.png")
+        
+        img.save(save_path, format="PNG")
+        
+        await upload_avatar_cmd.finish("头像上传成功并已自动裁剪~", at_sender=True)
+    except Exception as e:
+        logger.error(f"上传头像失败: {e}")
+        await upload_avatar_cmd.finish("头像上传失败或图片格式不正确...", at_sender=True)

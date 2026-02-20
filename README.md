@@ -141,7 +141,7 @@
 | groupchat | 群聊功能 | ❌ 未迁移 | - | - |
 | no_thanks | 不用谢 | ❌ 未迁移 | - | - |
 | luxunsaid | 鲁迅说 | ❌ 未迁移 | - | - |
-| call_me_please | 叫我 | ❌ 未迁移 | - | - |
+| call_me_please | 叫我 | ✅ 已迁移 | - | - |
 | crazy_fan | 发癫 | ❌ 未迁移 | - | - |
 | dirt_love | 土味情话 | ❌ 未迁移 | - | - |
 | say_goodnight | 晚安 | ❌ 未迁移 | - | - |

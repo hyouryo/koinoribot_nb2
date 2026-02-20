@@ -20,6 +20,7 @@ from .build_image import BuildImage
 from .uid_manager import get_uid as get_unified_uid
 from .uid_manager import get_uid_by_external_id
 from .uid_manager import get_external_ids
+from .nickname import get_user_nickname
 
 # ===== UID 相关 =====
 
@@ -63,6 +64,15 @@ def get_group_id_optional(event: Event) -> Optional[str]:
 
 def get_sender_nickname(event: Event) -> str:
     """获取发送者昵称"""
+    try:
+        platform_uid = event.get_user_id()
+        uid = get_uid(event, platform_uid)
+        custom_nickname = get_user_nickname(uid)
+        if custom_nickname:
+            return custom_nickname
+    except Exception as e:
+        logger.debug(f"获取自定义昵称失败: {e}")
+
     if isinstance(event, onebot.MessageEvent):
         if event.sender:
             return event.sender.nickname or event.sender.card or ""

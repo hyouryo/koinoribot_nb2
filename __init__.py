@@ -16,6 +16,7 @@ from .config import Config
 from . import uid_manager
 from . import money
 from . import resources
+from . import nickname
 from .koinori_config import config as koinori_config
 
 __plugin_meta__ = PluginMetadata(
@@ -46,10 +47,12 @@ async def init_koinoribot():
     
     uid_manager.set_database_path(str(db_path))
     money.set_database_path(str(db_path))
+    nickname.set_db_path(str(db_path))
     
     # 初始化数据库
     uid_manager.init_uid_database()
     money.init_money_database()
+    nickname.init_nickname_database()
     
     nonebot.logger.info("Koinoribot NB2 初始化完成")
 

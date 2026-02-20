@@ -346,7 +346,22 @@ async def as_login_v3(uid: int, username: str, qqname: str, nick_flag: int, avat
     
     # 头像
     icon_pasted = False
-    if avatar_url:
+    is_default_avatar = False
+    
+    # 优先检查是否存在自定义上传的头像
+    custom_avatar_path = os.path.join(srcpath, 'avatar', f'{uid}.png')
+    if os.path.exists(custom_avatar_path):
+        try:
+            icon = BuildImage(0, 0, background=custom_avatar_path)
+            w, h = icon.size
+            icon.resize(ratio=100 / w)
+            icon.circle()
+            bg.paste(icon, (23, 23), True)
+            icon_pasted = True
+        except Exception:
+            pass
+
+    if not icon_pasted and avatar_url:
         try:
             profile_img = await fetch_avatar(avatar_url)
             if profile_img:
@@ -369,8 +384,16 @@ async def as_login_v3(uid: int, username: str, qqname: str, nick_flag: int, avat
                 icon.resize(ratio=100 / w)
                 icon.circle()
                 bg.paste(icon, (23, 23), True)
+                is_default_avatar = True
             except Exception:
                 pass
+                
+    if is_default_avatar:
+        tip_text = BuildImage(0, 0, plain_text="当前为默认头像，可发送 上传头像[图片] 修改", font_size=10, font='yz.ttf',
+                                 font_color=(77, 83, 149), stroke_width=border, stroke_fill=(255, 255, 255))
+        tip_w, tip_h = tip_text.size
+        # 头像坐标是 (23, 23), 大小 100x100, 中心x为 73
+        bg.paste(tip_text, (int(73 - tip_w / 2), 126), True)
     
     # 日期+累计签到（上移至y=473以腾出UID显示空间）
     date_text = BuildImage(0, 0, plain_text=date_msg, font_size=30, font='nyan.ttf',
@@ -606,7 +629,21 @@ async def get_purse(uid: int, user_name: str, guild_flag: int = 0, avatar_url: s
     
     # 头像
     icon_pasted = False
-    if avatar_url:
+    
+    # 优先检查是否存在自定义上传的头像
+    custom_avatar_path = os.path.join(srcpath, 'avatar', f'{uid}.png')
+    if os.path.exists(custom_avatar_path):
+        try:
+            icon = BuildImage(0, 0, background=custom_avatar_path)
+            w, h = icon.size
+            icon.resize(ratio=80 / w)
+            icon.circle()
+            bg.paste(icon, (20, 18), True)
+            icon_pasted = True
+        except Exception:
+            pass
+
+    if not icon_pasted and avatar_url:
         try:
             profile_img = await fetch_avatar(avatar_url)
             if profile_img:
