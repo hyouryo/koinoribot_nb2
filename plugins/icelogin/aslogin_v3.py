@@ -393,7 +393,7 @@ async def as_login_v3(uid: int, username: str, qqname: str, nick_flag: int, avat
                                  font_color=(77, 83, 149), stroke_width=border, stroke_fill=(255, 255, 255))
         tip_w, tip_h = tip_text.size
         # 头像坐标是 (23, 23), 大小 100x100, 中心x为 73
-        bg.paste(tip_text, (int(73 - tip_w / 2), 126), True)
+        bg.paste(tip_text, (10, 136), True)
     
     # 日期+累计签到（上移至y=473以腾出UID显示空间）
     date_text = BuildImage(0, 0, plain_text=date_msg, font_size=30, font='nyan.ttf',
