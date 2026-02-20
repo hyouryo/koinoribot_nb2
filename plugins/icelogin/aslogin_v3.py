@@ -345,6 +345,7 @@ async def as_login_v3(uid: int, username: str, qqname: str, nick_flag: int, avat
         bg = BuildImage(0, 0, font_size=30, background=imageFile, font='HYShiGuangTiW_0.ttf')
     
     # 头像
+    icon_pasted = False
     if avatar_url:
         try:
             profile_img = await fetch_avatar(avatar_url)
@@ -355,8 +356,21 @@ async def as_login_v3(uid: int, username: str, qqname: str, nick_flag: int, avat
                 icon.resize(ratio=100 / w)
                 icon.circle()
                 bg.paste(icon, (23, 23), True)
+                icon_pasted = True
         except Exception as e:
             pass  # 头像加载失败，跳过
+
+    if not icon_pasted:
+        default_icon_path = os.path.join(srcpath, 'default_avatar.jpg')
+        if os.path.exists(default_icon_path):
+            try:
+                icon = BuildImage(0, 0, background=default_icon_path)
+                w, h = icon.size
+                icon.resize(ratio=100 / w)
+                icon.circle()
+                bg.paste(icon, (23, 23), True)
+            except Exception:
+                pass
     
     # 日期+累计签到（上移至y=473以腾出UID显示空间）
     date_text = BuildImage(0, 0, plain_text=date_msg, font_size=30, font='nyan.ttf',
@@ -591,6 +605,7 @@ async def get_purse(uid: int, user_name: str, guild_flag: int = 0, avatar_url: s
     bg = BuildImage(0, 0, font_size=30, background=imageFile, font='yz.ttf')
     
     # 头像
+    icon_pasted = False
     if avatar_url:
         try:
             profile_img = await fetch_avatar(avatar_url)
@@ -601,8 +616,21 @@ async def get_purse(uid: int, user_name: str, guild_flag: int = 0, avatar_url: s
                 icon.resize(ratio=80 / w)
                 icon.circle()
                 bg.paste(icon, (20, 18), True)
+                icon_pasted = True
         except Exception as e:
             pass  # 头像加载失败，跳过
+
+    if not icon_pasted:
+        default_icon_path = os.path.join(srcpath, 'default_avatar.jpg')
+        if os.path.exists(default_icon_path):
+            try:
+                icon = BuildImage(0, 0, background=default_icon_path)
+                w, h = icon.size
+                icon.resize(ratio=80 / w)
+                icon.circle()
+                bg.paste(icon, (20, 18), True)
+            except Exception:
+                pass
     
     # 昵称
     display_name = user_name[:9] + '...' if len(user_name) >= 10 else user_name
