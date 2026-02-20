@@ -323,7 +323,8 @@ quit_cmd = on_command("我不猜了", priority=5, block=True)
 async def handle_quit(event: Event, bot: Bot, gid: str = Depends(get_group_id)):
     session = find_session(gid)
     if not session:
-        await quit_cmd.finish("当前没有进行中的猜单词游戏喔~", at_sender=True)
+        #await quit_cmd.finish("当前没有进行中的猜单词游戏喔~", at_sender=True)
+        return
     
     close_session(gid)
     if game_type == '英语单词':
@@ -352,7 +353,8 @@ hint_cmd = on_command("我要提示", priority=5, block=True)
 async def handle_hint(event: Event, bot: Bot, gid: str = Depends(get_group_id)):
     session = find_session(gid)
     if not session:
-        await hint_cmd.finish("当前没有进行中的猜单词游戏喔~", at_sender=True)
+        #await hint_cmd.finish("当前没有进行中的猜单词游戏喔~", at_sender=True)
+        return
     
     game_type = session.get('type')
     
@@ -376,7 +378,8 @@ guess_handler = on_command("我猜是", priority=5, block=True)
 async def handle_guess(event: Event, bot: Bot, args: Message = CommandArg(), gid: str = Depends(get_group_id)):
     session = find_session(gid)
     if not session:
-        await guess_handler.finish("当前没有进行中的猜单词游戏喔~", at_sender=True)
+        #await guess_handler.finish("当前没有进行中的猜单词游戏喔~", at_sender=True)
+        return
     
     message = args.extract_plain_text().strip()
     if not message:

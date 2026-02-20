@@ -703,15 +703,50 @@ async def get_purse(uid: int, user_name: str, guild_flag: int = 0, avatar_url: s
 
 
 async def dl_save_image(url: str, uid: int):
-    """下载并保存自定义背景图"""
+    """下载并保存自定义背景图并自动裁剪调整为960x540"""
+    from PIL import Image
+    import io
     srcpath = get_src_path()
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as r:
             content = await r.read()
+            
+            img = Image.open(io.BytesIO(content)).convert("RGB")
+            w, h = img.size
+            
+            # 目标比例 960:540 即 16:9
+            target_ratio = 960 / 540
+            current_ratio = w / h
+            
+            if current_ratio > target_ratio:
+                # 宽度过宽，居中截取宽度
+                new_w = int(h * target_ratio)
+                left = (w - new_w) // 2
+                right = left + new_w
+                top = 0
+                bottom = h
+            else:
+                # 高度过高，居中截取高度
+                new_h = int(w / target_ratio)
+                top = (h - new_h) // 2
+                bottom = top + new_h
+                left = 0
+                right = w
+                
+            # 居中裁剪
+            img = img.crop((left, top, right, bottom))
+            
+            # 统一缩小/放大为 960x540
+            if hasattr(Image, 'Resampling'):
+                resample_method = Image.Resampling.LANCZOS
+            else:
+                resample_method = Image.ANTIALIAS
+            img = img.resize((960, 540), resample_method)
+            
             save_path = os.path.join(srcpath, f'customize/{uid}.jpg')
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            with open(save_path, 'wb') as f:
-                f.write(content)
+            img.save(save_path, format="JPEG", quality=95)
+            
     money.set_user_background(uid, f'{uid}.jpg', 'custom')
     money.set_user_bg_mode(uid, mode=2)
 
