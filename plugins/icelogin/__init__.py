@@ -59,7 +59,7 @@ async def handle_login(
     # 尝试调用签到卡片生成（如果可用）
     from .aslogin_v3 import as_login_v3
     # 获取用户头像 URL
-    avatar_url = get_user_avatar_url(event)
+    avatar_url = get_user_avatar_url(event, uid=uid)
     image_bytes = await as_login_v3(
         uid=uid,
         username=username,
@@ -95,7 +95,7 @@ async def handle_purse(
     # 尝试调用钱包卡片生成
     from .aslogin_v3 import get_purse
     # 获取用户头像 URL
-    avatar_url = get_user_avatar_url(event)
+    avatar_url = get_user_avatar_url(event, uid=uid)
     image_bytes = await get_purse(uid=uid, user_name=username, avatar_url=avatar_url)
     # 根据适配器类型构建图片消息段
     if is_qqbot(event):
