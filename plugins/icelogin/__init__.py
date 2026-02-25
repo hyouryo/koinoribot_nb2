@@ -380,11 +380,11 @@ async def handle_bind(
     await bind_cmd.send(
         f"\n绑定将把你当前平台的账号与验证码对应的账号合并为同一个uid。\n"
         f"你需要选择保留哪个uid，未被保留的uid将被删除。\n\n"
-        f"1. 老账号 uid={source_uid}（QQ: {source_qq}, OpenID: {source_openid}）\n"
+        f"1. 账号一 uid={source_uid}（QQ: {source_qq}, OpenID: {source_openid}）\n"
         f"   金币余额: {source_gold}  宝石余额: {source_gem}\n\n"
-        f"2. 新账号 uid={uid}\n"
+        f"2. 账号二 uid={uid}\n"
         f"   金币余额: {current_gold}  宝石余额: {current_gem}\n\n"
-        f"请回复 1（保留老账号）或 2（保留新账号）："
+        f"请回复 1（保留账号一）或 2（保留账号二）："
     )
     await bind_cmd.pause()
 
