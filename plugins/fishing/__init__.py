@@ -276,7 +276,7 @@ async def handle_thousand_fish(
         10000,
         90000,
         config.star_price * 10000 // 2,
-        "千连钓鱼",
+        "万连钓鱼",
         general_cooldown,
         wallet,
     )
@@ -304,7 +304,7 @@ async def handle_thousand_fish(
         100000,
         1,
         config.star_price * 0 // 2,
-        "千连钓鱼",
+        "十万连钓鱼",
         general_cooldown,
         wallet,
     )

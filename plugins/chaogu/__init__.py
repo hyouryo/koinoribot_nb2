@@ -35,7 +35,7 @@ from .stock_utils import (
     get_user_portfolio, update_user_portfolio,
     get_current_stock_price, get_stock_price_history,
     generate_stock_chart,
-    # 豪赌相关
+    # 幸运游戏相关
     update_gamble_record, get_all_gamble_record, get_user_gamble_record,
     check_daily_gamble_limit, record_gamble_today,
     # 转盘相关
@@ -263,7 +263,7 @@ buy_stock_cmd = on_command("买入", priority=5, block=True)
 async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), args: Message = CommandArg()):
     # 检查是否在赌博中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await buy_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成赌局或'见好就收'。", at_sender=True)
+        await buy_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成游戏或'见好就收'。", at_sender=True)
     
     # 解析参数
     arg_text = args.extract_plain_text().strip()
@@ -340,7 +340,7 @@ sell_stock_cmd = on_command("卖出", priority=5, block=True)
 async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), args: Message = CommandArg()):
     # 检查是否在赌博中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await sell_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成赌局或'见好就收'。", at_sender=True)
+        await sell_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成游戏或'见好就收'。", at_sender=True)
     
     arg_text = args.extract_plain_text().strip()
     parts = arg_text.split()
@@ -624,7 +624,7 @@ async def perform_gamble_round(uid: int) -> dict:
     """执行一轮赌博并更新虚拟金币"""
     old_gold = gambling_sessions[uid]['gold']
     if old_gold is None or old_gold <= 0:
-        return {"success": False, "message": "你没有金币可以用来豪赌。"}
+        return {"success": False, "message": "你没有金币可以用来幸运游戏。"}
     
     # 计算胜率
     get_gamble_win_probability(old_gold, uid)
@@ -681,9 +681,9 @@ async def handle_start_gamble_old(event: Event, bot: Bot, uid: int = Depends(get
 gamble_start_cmd = on_command("幸运游戏", priority=5, block=True)
 @gamble_start_cmd.handle()
 async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
-    # 检查是否已在赌局中
+    # 检查是否已在游戏中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await gamble_start_cmd.finish("你正在进行幸运游戏，请先完成或使用 '见好就收' 结束当前赌局。", at_sender=True)
+        await gamble_start_cmd.finish("你正在进行幸运游戏，请先完成或使用 '见好就收' 结束当前游戏。", at_sender=True)
     
     # 检查每日限制
     
@@ -711,10 +711,10 @@ async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid
     win = gambling_sessions[uid]['win'] * 100
     
     rules = f"""\n🎲 幸运游戏 规则 🎲：
-1. 连续{MAX_GAMBLE_ROUNDS}轮豪赌，每一轮消耗1枚幸运币，你所持有的【全部金币】都有几率翻倍，或者骤减。
+1. 连续{MAX_GAMBLE_ROUNDS}轮幸运游戏，每一轮消耗1枚幸运币，你所持有的【全部金币】都有几率翻倍，或者骤减。
 2. 你可以在任何一轮结束后选择 '见好就收' 带着当前金币离场。
 3. 若任意一轮失败，则立即结束并离场。
-【警告】：当前金币已被记录，豪赌过程中，通过豪赌以外的途径增减的金币，将不影响游戏结果。
+【警告】：当前金币已被记录，幸运游戏过程中，通过幸运游戏以外的途径增减的金币，将不影响游戏结果。
 你当前持有 {gold} 枚金币
 你当前持有 {luckygold} 枚幸运币
 当前获胜概率: {win}%
@@ -723,7 +723,7 @@ async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid
     await gamble_start_cmd.finish(rules, at_sender=True)
 
 
-# ===== 确认开始豪赌 =====
+# ===== 确认开始幸运游戏 =====
 gamble_confirm_cmd = on_command("确认", priority=5, block=True)
 
 @gamble_confirm_cmd.handle()
@@ -742,7 +742,7 @@ async def handle_confirm_gamble(event: Event, bot: Bot, uid: int = Depends(get_u
     
     if luckygold < 1:
         del gambling_sessions[uid]
-        await gamble_confirm_cmd.finish("你没有足够的幸运币参与豪赌。", at_sender=True)
+        await gamble_confirm_cmd.finish("你没有足够的幸运币参与幸运游戏。", at_sender=True)
     
     money.reduce_user_money(uid, 'luckygold', 1)
     
@@ -757,7 +757,7 @@ async def handle_confirm_gamble(event: Event, bot: Bot, uid: int = Depends(get_u
     
     if not result["success"]:
         del gambling_sessions[uid]
-        await gamble_confirm_cmd.finish(f"豪赌失败：{result['message']}", at_sender=True)
+        await gamble_confirm_cmd.finish(f"幸运游戏失败：{result['message']}", at_sender=True)
     
     win = gambling_sessions[uid]['win'] * 100
     
@@ -784,15 +784,15 @@ gamble_continue_cmd = on_command("继续", priority=5, block=True)
 
 @gamble_continue_cmd.handle()
 async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
-    # 检查用户是否在活跃的赌局中
+    # 检查用户是否在活跃的游戏中
     if uid not in gambling_sessions or not gambling_sessions[uid].get('active', False):
-        return  # 不在赌局中，忽略
+        return  # 不在游戏中，忽略
     
     current_round = gambling_sessions[uid]['round']
     luckygold = money.get_user_money(uid, 'luckygold') or 0
     
     if luckygold < 1:
-        await gamble_continue_cmd.finish("你没有足够的幸运币继续。发送 见好就收 可以退出赌局~", at_sender=True)
+        await gamble_continue_cmd.finish("你没有足够的幸运币继续。发送 见好就收 可以退出游戏~", at_sender=True)
     
     money.reduce_user_money(uid, 'luckygold', 1)
     
@@ -804,7 +804,7 @@ async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_
     
     if not result["success"]:
         del gambling_sessions[uid]
-        await gamble_continue_cmd.finish(f"豪赌失败：{result['message']}", at_sender=True)
+        await gamble_continue_cmd.finish(f"幸运游戏失败：{result['message']}", at_sender=True)
     
     win = gambling_sessions[uid]['win'] * 100
     
@@ -812,7 +812,7 @@ async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_
 金币变化：{result['old_gold']} -> {result['new_gold']} (x{result['multiplier']})"""
     
     if gambling_sessions[uid]['round'] >= MAX_GAMBLE_ROUNDS:
-        message += f"\n你已完成全部 {MAX_GAMBLE_ROUNDS} 轮豪赌，游戏结束！"
+        message += f"\n你已完成全部 {MAX_GAMBLE_ROUNDS} 轮幸运游戏，游戏结束！"
         start_gold = gambling_sessions[uid]['start_gold']
         final_gold = gambling_sessions[uid]['gold']
         record = await gold_change_record(uid, start_gold, final_gold)
@@ -838,7 +838,7 @@ gamble_stop_cmd = on_command("见好就收", aliases={"算了"}, priority=5, blo
 @gamble_stop_cmd.handle()
 async def handle_stop_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     if uid not in gambling_sessions:
-        return  # 不在赌局中，忽略
+        return  # 不在游戏中，忽略
     
     current_round = gambling_sessions[uid].get('round', 0)
     confirmed = gambling_sessions[uid].get('confirmed', False)
@@ -846,7 +846,7 @@ async def handle_stop_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)
     if not confirmed:
         # 在规则确认阶段取消
         del gambling_sessions[uid]
-        await gamble_stop_cmd.finish("好吧，谨慎总是好的。赌局已取消。", at_sender=True)
+        await gamble_stop_cmd.finish("好吧，谨慎总是好的。游戏已取消。", at_sender=True)
     elif current_round > 0:
         # 赌了几轮后收手
         start_gold = gambling_sessions[uid]['start_gold']
@@ -856,7 +856,7 @@ async def handle_stop_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)
         await gamble_stop_cmd.finish(f"明智的选择！你在第 {current_round} 轮后选择离场。" + record, at_sender=True)
     else:
         del gambling_sessions[uid]
-        await gamble_stop_cmd.finish("赌局已结束。", at_sender=True)
+        await gamble_stop_cmd.finish("游戏已结束。", at_sender=True)
 
 
 # ===== 豪赌榜 =====
@@ -1201,10 +1201,10 @@ async def _do_transfer(cmd, sender_uid: int, target_uid: int, amount: int):
         await cmd.finish('\n无法给自己转账', at_sender=True)
     
     if sender_uid in gambling_sessions and gambling_sessions[sender_uid].get('active', False):
-        await cmd.finish("你正处于豪赌过程中，不能转账哦~", at_sender=True)
+        await cmd.finish("你正处于幸运游戏过程中，不能转账哦~", at_sender=True)
     
     if target_uid in gambling_sessions and gambling_sessions[target_uid].get('active', False):
-        await cmd.finish("对方正处于豪赌过程中，不能转账哦~", at_sender=True)
+        await cmd.finish("对方正处于幸运游戏过程中，不能转账哦~", at_sender=True)
     
     if amount < 20:
         await cmd.finish('错误金额，最低转账20金币', at_sender=True)
