@@ -378,7 +378,7 @@ async def handle_bind(
     }
 
     await bind_cmd.send(
-        f"\n绑定将把你当前平台的账号与验证码对应的账号合并为同一个uid。\n"
+        f"绑定将把你当前平台的账号与验证码对应的账号合并为同一个uid。\n"
         f"你需要选择保留哪个uid，未被保留的uid将被删除。\n\n"
         f"1. 账号一 uid={source_uid}（QQ: {source_qq}, OpenID: {source_openid}）\n"
         f"   金币余额: {source_gold}  宝石余额: {source_gem}\n\n"
