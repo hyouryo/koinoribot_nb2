@@ -629,8 +629,8 @@ async def handle_throw_bottle(
     if content == "":
         await throw_bottle_cmd.finish("漂流瓶内容不能为空喔", at_sender=True)
 
-    if len(content) > 30:
-        await throw_bottle_cmd.finish("内容太长了（最多30字）", at_sender=True)
+    if len(content) > 60:
+        await throw_bottle_cmd.finish("内容太长了（最多60字）", at_sender=True)
 
     # 扣除漂流瓶
     await FishingManager.decrease_value(uid, "fish", "✉", 1, user_info)

@@ -47,7 +47,7 @@ class KoinoribotConfig(BaseModel):
         '🐡': 45, '🐠': 75, '🦈': 100, '🌟': 2000
     }
     # 钓鱼概率 (没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心)
-    probability: list = [(5, 10, 74, 10, 1)]
+    probability: list = [(10, 5, 74, 10, 1)]
     # 各种鱼上钩概率
     probability_2: list = [(25, 23, 20, 15, 9, 7, 1)]
     
