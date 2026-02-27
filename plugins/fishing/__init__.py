@@ -735,7 +735,7 @@ async def handle_bottle_count() -> None:
 
 
 # ----- 评论漂流瓶 -----
-comment_bottle_cmd = on_command("评论漂流瓶", priority=5, block=True)
+comment_bottle_cmd = on_command("评论漂流瓶", aliases={"回复漂流瓶"}, priority=5, block=True)
 
 
 @comment_bottle_cmd.handle()

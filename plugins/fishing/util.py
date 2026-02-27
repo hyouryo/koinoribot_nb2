@@ -80,29 +80,6 @@ class DatabaseManager:
             )
         ''')
 
-        # 检查是否需要迁移（移除 group_id 列）
-        cursor.execute("PRAGMA table_info(bottles)")
-        columns = [column["name"] for column in cursor.fetchall()]
-        if "group_id" in columns:
-            logger.info("检测到旧版 bottles 表，正在移除 group_id 列...")
-            cursor.execute("ALTER TABLE bottles RENAME TO bottles_old")
-            cursor.execute('''
-                CREATE TABLE bottles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    uid INTEGER NOT NULL,
-                    content TEXT NOT NULL,
-                    pick_count INTEGER DEFAULT 0,
-                    deleted INTEGER DEFAULT 0,
-                    created_time INTEGER NOT NULL
-                )
-            ''')
-            cursor.execute('''
-                INSERT INTO bottles (id, uid, content, pick_count, deleted, created_time)
-                SELECT id, uid, content, pick_count, deleted, created_time FROM bottles_old
-            ''')
-            cursor.execute("DROP TABLE bottles_old")
-            logger.info("bottles 表迁移完成")
-
         # 漂流瓶评论表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS bottle_comments (
