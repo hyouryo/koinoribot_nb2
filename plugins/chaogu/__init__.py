@@ -1109,7 +1109,7 @@ async def handle_transfer_uid(event: Event, bot: Bot, uid: int = Depends(get_uid
         target_uid = int(parts[0])
         amount = int(parts[1])
     except ValueError:
-        await transfer_uid_cmd.finish("UID和金额必须是数字！", at_sender=True)
+        await transfer_uid_cmd.finish("UID和金额必须是整数！", at_sender=True)
     
     # 检查UID是否存在
     if not uid_manager.is_uid_exists(target_uid):
