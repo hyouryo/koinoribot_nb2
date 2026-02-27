@@ -734,6 +734,60 @@ async def handle_bottle_count() -> None:
         await bottle_count_cmd.finish(f"当前一共有{count}个漂流瓶~")
 
 
+# ----- 捡指定漂流瓶（仅 SU） -----
+pick_by_id_cmd = on_command("捡指定漂流瓶", aliases={"查看指定漂流瓶"}, priority=4, block=True)
+
+
+@pick_by_id_cmd.handle()
+async def handle_pick_by_id(
+    bot: Bot,
+    event: Event,
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid),
+) -> None:
+    if not is_su(uid):
+        await pick_by_id_cmd.finish("权限不足", at_sender=True)
+
+    bottle_id_str = args.extract_plain_text().strip()
+    if not bottle_id_str.isdigit():
+        await pick_by_id_cmd.finish("用法: 捡指定漂流瓶 漂流瓶ID", at_sender=True)
+
+    bottle = BottleManager.get_bottle_by_id(bottle_id_str)
+    if bottle is None:
+        await pick_by_id_cmd.finish(f"找不到漂流瓶 #{bottle_id_str}", at_sender=True)
+
+    create_time = datetime.datetime.fromtimestamp(bottle["time"]).strftime(
+        "%Y-%m-%d %H:%M"
+    )
+    deleted_tag = "【已删除】" if bottle["deleted"] else ""
+
+    bottle_msg = f"🍾 漂流瓶 #{bottle['id']} {deleted_tag}\n"
+    bottle_msg += f"━━━━━━━━━━\n"
+    bottle_msg += f"{bottle['content']}\n"
+    bottle_msg += f"━━━━━━━━━━\n"
+    bottle_msg += f"投放者UID: {bottle['uid']}\n"
+    bottle_msg += f"投放时间: {create_time}\n"
+    bottle_msg += f"被捞起次数: {bottle['pick_count']}"
+
+    forward_messages = [bottle_msg]
+
+    comments = bottle.get("comments", [])
+    if comments:
+        for c in comments:
+            comment_time = datetime.datetime.fromtimestamp(c.get("time", 0)).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            comment_msg = f"💬 [UID: {c.get('uid', '未知')}]\n{c['content']}\n— {comment_time}"
+            forward_messages.append(comment_msg)
+
+    try:
+        chain = await build_forward_chain(bot, forward_messages)
+        await send_group_forward_msg(event, bot, chain)
+    except Exception as e:
+        logger.error(f"捡指定漂流瓶合并消息发送失败: {e}")
+        await pick_by_id_cmd.finish(bottle_msg)
+
+
 # ----- 评论漂流瓶 -----
 comment_bottle_cmd = on_command("评论漂流瓶", aliases={"回复漂流瓶"}, priority=5, block=True)
 

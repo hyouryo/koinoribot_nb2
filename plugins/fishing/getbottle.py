@@ -153,6 +153,52 @@ class BottleManager:
         return True
 
     @classmethod
+    def get_bottle_by_id(cls, bottle_id: str) -> Optional[dict]:
+        """
+        按 ID 查询指定漂流瓶（含评论，不过滤 deleted 状态）
+
+        Args:
+            bottle_id: 漂流瓶ID
+
+        Returns:
+            漂流瓶数据字典，或 None（不存在时）
+        """
+        conn = DatabaseManager.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT id, uid, content, pick_count, deleted, created_time "
+            "FROM bottles WHERE id = ?",
+            (int(bottle_id),)
+        )
+        row = cursor.fetchone()
+
+        if row is None:
+            conn.close()
+            return None
+
+        cursor.execute(
+            "SELECT uid, content, created_time FROM bottle_comments "
+            "WHERE bottle_id = ? ORDER BY created_time ASC",
+            (row["id"],)
+        )
+        comments = [
+            {"uid": c["uid"], "content": c["content"], "time": c["created_time"]}
+            for c in cursor.fetchall()
+        ]
+        conn.close()
+
+        return {
+            "id": str(row["id"]),
+            "uid": row["uid"],
+            "content": row["content"],
+            "pick_count": row["pick_count"],
+            "deleted": row["deleted"],
+            "time": row["created_time"],
+            "comments": comments,
+        }
+
+    @classmethod
     def delete_bottle(cls, bottle_id: str) -> bool:
         """
         删除漂流瓶（软删除）
