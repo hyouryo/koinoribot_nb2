@@ -39,7 +39,7 @@ async def luxunsaid_handle(event: Event, msg: Message = CommandArg()) -> None:
     for biaodian in [",", "，", ":", "："]:
         if message.startswith(biaodian):
             message.strip(biaodian)
-    image_file = Path(__file__).parent / "luxun.png"
+    image_file = Path(__file__).parent / "luxun.jpg"
     bg = BuildImage(0, 0, font_size=37, background=image_file, font="STKAITI.TTF")
     say = ""
     if len(message) > 40:  # noqa: PLR2004
@@ -74,7 +74,7 @@ async def shashibiyasaid_handle(event: Event, msg: Message = CommandArg()) -> No
     for biaodian in [",", "，", ":", "："]:
         if message.startswith(biaodian):
             message.strip(biaodian)
-    image_file = Path(__file__).parent / "shashibiya.png"
+    image_file = Path(__file__).parent / "shashibiya.jpg"
     bg = BuildImage(0, 0, font_size=37, background=image_file, font="HGFS_CNKI.TTF")
     say = ""
     if len(message) > 40:  # noqa: PLR2004
