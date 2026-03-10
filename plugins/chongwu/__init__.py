@@ -1086,7 +1086,7 @@ async def handle_pet_ranking(event: Event, bot: Bot):
     msg = ["🏆 宠物排行榜-TOP10 🏆"]
     for rank, (growth, name, pet_type, _uid) in enumerate(adult_pets[:10], 1):
         owner_name = get_user_nickname(int(_uid)) or f"UID{_uid}"
-        msg.append(f"第{rank}名: {name}({pet_type}) - 主人:{owner_name}\n成长值: {growth:.1f}")
+        msg.append(f"{rank}. {name}({pet_type}) - 主人:{owner_name}\n成长值: {growth:.1f}")
 
     msg_str = "\n".join(msg)
     chain = await build_forward_chain(bot, [msg_str])

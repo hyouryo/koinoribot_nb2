@@ -885,7 +885,7 @@ async def handle_gamble_ranking(event: Event, bot: Bot):
     msg = "梦灵的零花钱都给了谁：\n"
     for i, (uid, net_gain) in enumerate(sorted_users[:10], 1):
         owner_name = get_user_nickname(int(uid)) or f"UID{uid}"
-        msg += f"第{i}名: {owner_name} 累计取走: {net_gain}金币\n"
+        msg += f"{i}. {owner_name} 累计取走: {net_gain}金币\n"
     
     if len(sorted_users) == 0:
         msg += "暂无零花钱记录"
@@ -917,7 +917,7 @@ async def handle_gamble_loss_ranking(event: Event, bot: Bot):
     msg = "梦灵的零花钱来源：\n"
     for i, (uid, net_contribution) in enumerate(sorted_users[:10], 1):
         owner_name = get_user_nickname(int(uid)) or f"UID{uid}"
-        msg += f"第{i}名: {owner_name} 累计存入: {net_contribution}金币\n"
+        msg += f"{i}. {owner_name} 累计存入: {net_contribution}金币\n"
     
     if len(sorted_users) == 0:
         msg += "暂无零花钱记录"

@@ -143,7 +143,7 @@ async def handle_gold_ranking(
     for rank, (user_id, gold) in enumerate(ranked_list[:10], 1):
         gold_in_wan = gold / 10000
         owner_name = get_user_nickname(int(user_id)) or f"UID {user_id}"
-        msg_parts.append(f"第{rank}名: {owner_name}: {gold_in_wan:.2f}万")
+        msg_parts.append(f"{rank}. {owner_name}: {gold_in_wan:.2f}万")
     
     # 当前用户排名
     user_rank = -1
