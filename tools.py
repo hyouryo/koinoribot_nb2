@@ -264,22 +264,22 @@ async def build_forward_node(
     if not user_name.strip():
         user_name = '用户'
     
-    # 构建 content：使用 onebot.MessageSegment 而非原始字典，避免某些实现 schema 校验失败
-    if isinstance(msg, onebot.Message):
-        content = msg
-    elif isinstance(msg, list):
-        # 将字典列表转为 Message 对象
+    # 构建 onebot.Message 对象，确保协议端能正确解析
+    if isinstance(msg, list):
+        # msg 是消息段列表 [{"type": "text", "data": {"text": "..."}}]
         ob_msg = onebot.Message()
         for seg in msg:
             if isinstance(seg, dict):
-                seg_type = seg.get("type", "text")
-                seg_data = seg.get("data", {})
-                ob_msg.append(onebot.MessageSegment(type=seg_type, data=seg_data))
+                ob_msg.append(onebot.MessageSegment(type=seg["type"], data=seg.get("data", {})))
             elif isinstance(seg, onebot.MessageSegment):
                 ob_msg.append(seg)
         content = ob_msg
+    elif isinstance(msg, onebot.Message):
+        content = msg
+    elif isinstance(msg, onebot.MessageSegment):
+        content = onebot.Message([msg])
     else:
-        content = onebot.Message(onebot.MessageSegment.text(str(msg)))
+        content = onebot.Message([onebot.MessageSegment.text(str(msg))])
     
     return {
         "type": "node",
