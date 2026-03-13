@@ -416,28 +416,45 @@ async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: 
         content = [{'type': 'text', 'data': {'text': content}}]
         
     for segment in content:
-        if not isinstance(segment, dict):
+        # 兼容 MessageSegment 对象和 dict 格式
+        if isinstance(segment, onebot.MessageSegment):
+            seg_type = segment.type
+            seg_data = segment.data
+        elif isinstance(segment, dict):
+            seg_type = segment.get('type')
+            seg_data = segment.get('data', {})
+        else:
             continue
-            
-        seg_type = segment.get('type')
-        seg_data = segment.get('data', {})
         
         if seg_type == 'text':
             text = seg_data.get('text', '')
             if text:
-                # 简单自动换行 (0.8 为中英文混合估算系数)，保留原有的换行符
-                max_line_chars = int((width - 2 * padding) / (font_size * 0.8))
+                max_width = width - 2 * padding
                 
-                # 先按换行符分割，再对每一行进行 wrap
+                # 先按换行符分割，再对每一行进行像素级精确换行
                 original_lines = text.split('\n')
                 for original_line in original_lines:
-                    wrapped_lines = textwrap.wrap(original_line, width=max_line_chars)
-                    if not wrapped_lines: # 处理空行
+                    if not original_line:
                         current_y += font_size + line_spacing
                         continue
-                        
-                    for line in wrapped_lines:
-                        img.text((padding, current_y), line, fill=(0, 0, 0))
+                    
+                    # 逐字符测量，按实际像素宽度换行
+                    current_line = ""
+                    for char in original_line:
+                        test_line = current_line + char
+                        try:
+                            line_w = img.font.getlength(test_line)
+                        except AttributeError:
+                            line_w = img.font.getsize(test_line)[0]
+                        if line_w > max_width and current_line:
+                            img.text((padding, current_y), current_line, fill=(0, 0, 0))
+                            current_y += font_size + line_spacing
+                            current_line = char
+                        else:
+                            current_line = test_line
+                    
+                    if current_line:
+                        img.text((padding, current_y), current_line, fill=(0, 0, 0))
                         current_y += font_size + line_spacing
                     
         elif seg_type == 'image':
