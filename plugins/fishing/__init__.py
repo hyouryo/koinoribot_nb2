@@ -839,6 +839,28 @@ async def handle_comment_bottle(
     )
 
 
+# ----- 删除漂流瓶（仅 SU） -----
+delete_bottle_cmd = on_command("删除漂流瓶", priority=4, block=True)
+
+
+@delete_bottle_cmd.handle()
+async def handle_delete_bottle(
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid),
+) -> None:
+    if not is_su(uid):
+        await delete_bottle_cmd.finish("权限不足", at_sender=True)
+
+    bottle_id_str = args.extract_plain_text().strip()
+    if not bottle_id_str.isdigit():
+        await delete_bottle_cmd.finish("用法: 删除漂流瓶 漂流瓶ID", at_sender=True)
+
+    if BottleManager.delete_bottle(bottle_id_str):
+        await delete_bottle_cmd.finish(f"漂流瓶 #{bottle_id_str} 已删除", at_sender=True)
+    else:
+        await delete_bottle_cmd.finish(f"漂流瓶 #{bottle_id_str} 不存在或已被删除", at_sender=True)
+
+
 # ===== 初始化 =====
 driver = get_driver()
 
