@@ -162,6 +162,40 @@ def get_all_su_uids() -> list[int]:
     return list(su_uids)
 
 
+def get_excluded_su_uids() -> list[int]:
+    """
+    获取排行榜需要排除的 SU 用户 UID 列表。
+
+    排除等级不为 1 的 SU 用户（即排除 level 0/contributor 等，保留 level 1 的普通 SU）。
+    level 1 的 SU 是通过飞升获得权限的用户，应在排行榜中展示。
+
+    Returns:
+        需要排除的 SU 用户 UID 列表
+    """
+    excluded = set()
+
+    # 从 config 获取的 SU 视为 level 0，需要排除
+    config_sus = _get_config_superusers()
+    excluded.update(config_sus)
+
+    # 从表获取，排除 level != 1 的用户
+    try:
+        if _table_exists():
+            conn = sqlite3.connect(_get_db_path())
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT uid, level FROM superusers")
+                for row in cursor.fetchall():
+                    if row[1] != SU_LEVEL_NORMAL:
+                        excluded.add(row[0])
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.error(f"[su_manager] 获取排除 SU 列表异常: {e}")
+
+    return list(excluded)
+
+
 def _get_today_str() -> str:
     """获取今日日期字符串 YYYY-MM-DD"""
     return datetime.now().strftime("%Y-%m-%d")

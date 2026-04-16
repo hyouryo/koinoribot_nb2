@@ -28,6 +28,8 @@ from ...uid_manager import (
 )
 from ...nickname import get_user_nickname
 from ... import money
+from ...su_manager import get_excluded_su_uids
+from ..feisheng.data import get_all_feisheng_status
 
 __plugin_meta__ = PluginMetadata(
     name="icelogin",
@@ -121,19 +123,22 @@ async def handle_gold_ranking(
     uid: int = Depends(get_uid)
 ):
     """处理金币排行榜命令"""
-    from ...su_manager import get_all_su_uids
     
     all_gold_data = money.get_all_user_money('gold')
     
     if not all_gold_data:
         await rank_cmd.finish("排行榜暂无数据。")
     
-    # 过滤 SU 用户
-    su_uids = get_all_su_uids()
+    # 过滤需要排除的 SU 用户（保留 level 1 的 SU）
+    excluded_suids = get_excluded_su_uids()
     
-    # 转换为列表并排序（排除 SU）
-    ranked_list = [(uid_key, gold) for uid_key, gold in all_gold_data.items() if uid_key not in su_uids]
-    ranked_list.sort(key=lambda x: x[1], reverse=True)
+    # 获取所有用户飞升状态
+    feisheng_status = await get_all_feisheng_status()
+    
+    # 转换为列表并排序（排除非 level 1 的 SU）
+    ranked_list = [(uid_key, gold) for uid_key, gold in all_gold_data.items() if uid_key not in excluded_suids]
+    # 已飞升用户置顶，同组内按金币降序
+    ranked_list.sort(key=lambda x: (feisheng_status.get(x[0], False), x[1]), reverse=True)
     
     if not ranked_list:
         await rank_cmd.finish("排行榜暂无数据。")
@@ -141,9 +146,12 @@ async def handle_gold_ranking(
     # 构建排行榜消息
     msg_parts = ["🏆 金币排行榜-TOP10 🏆"]
     for rank, (user_id, gold) in enumerate(ranked_list[:10], 1):
-        gold_in_wan = gold / 10000
         owner_name = get_user_nickname(int(user_id)) or f"UID {user_id}"
-        msg_parts.append(f"{rank}. {owner_name}: {gold_in_wan:.2f}万")
+        if feisheng_status.get(user_id, False):
+            msg_parts.append(f"{rank}. {owner_name}: 超然物外（飞升上界）")
+        else:
+            gold_in_wan = gold / 10000
+            msg_parts.append(f"{rank}. {owner_name}: {gold_in_wan:.2f}万")
     
     # 当前用户排名
     user_rank = -1

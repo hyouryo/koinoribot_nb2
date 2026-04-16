@@ -35,6 +35,8 @@ from .pet import (
 from ...su_manager import is_su
 from ..fishing.util import DatabaseManager
 from ...nickname import get_user_nickname
+from ...su_manager import get_excluded_su_uids
+from ..feisheng.data import get_all_pet_feisheng_status
 
 __plugin_meta__ = PluginMetadata(
     name="chongwu",
@@ -1052,41 +1054,59 @@ pet_ranking_cmd = on_command("宠物排行榜", priority=5, block=True)
 @pet_ranking_cmd.handle()
 async def handle_pet_ranking(event: Event, bot: Bot):
     """显示成长值最高的前10只成年体宠物"""
-    from ...su_manager import get_all_su_uids
-    su_uids = get_all_su_uids()
+    excluded_suids = get_excluded_su_uids()
+    
+    # 获取飞升状态
+    feisheng_status = await get_all_pet_feisheng_status()
     
     user_pets = await get_user_pets()
 
     adult_pets = []
     for uid_key, pet in user_pets.items():
-        # 过滤 SU 用户
+        # 过滤需要排除的 SU 用户（保留 level 1 的 SU）
         try:
-            if int(uid_key) in su_uids:
+            if int(uid_key) in excluded_suids:
                 continue
         except (ValueError, TypeError):
-            if uid_key in su_uids:
+            if uid_key in excluded_suids:
                 continue
         if pet.get("stage") != 2:
             continue
         temp_pet = dict(pet)
         temp_pet = await update_pet_status(temp_pet)
         if not temp_pet.get("runaway", False):
+            # 获取飞升状态
+            uid_int = int(uid_key) if isinstance(uid_key, (str, int)) else uid_key
+            fs = feisheng_status.get(uid_int, {"is_pet_ascended": False, "is_ascended": False})
+            is_pet_ascended = fs["is_pet_ascended"]
+            is_user_ascended = fs["is_ascended"]
+            # 宠物飞升 → 一律置顶
+            is_top = is_pet_ascended
+            # 用户也飞升 → 屏蔽成长值
+            hide_growth = is_pet_ascended and is_user_ascended
             adult_pets.append((
                 temp_pet["growth"],
                 temp_pet["name"],
                 temp_pet["type"],
-                uid_key
+                uid_key,
+                is_top,
+                hide_growth
             ))
 
     if not adult_pets:
         await pet_ranking_cmd.finish("目前还没有成年体宠物上榜哦！", at_sender=True)
 
-    adult_pets.sort(reverse=True)
+    # 排序：宠物飞升的置顶；宠物飞升中，用户已飞升的排在用户未飞升的上方；同组内按成长值降序
+    adult_pets.sort(key=lambda x: (x[4], x[5], x[0]), reverse=True)
     
     msg = ["🏆 宠物排行榜-TOP10 🏆"]
-    for rank, (growth, name, pet_type, _uid) in enumerate(adult_pets[:10], 1):
+    for rank, (growth, name, pet_type, _uid, is_top, hide_growth) in enumerate(adult_pets[:10], 1):
         owner_name = get_user_nickname(int(_uid)) or f"UID{_uid}"
-        msg.append(f"{rank}. {name}({pet_type}) - 主人:{owner_name}\n成长值: {growth:.1f}")
+        top_tag = "（飞升上界）" if is_top else ""
+        if hide_growth:
+            msg.append(f"{rank}. {name}({pet_type}) - 主人:{owner_name}\n成长值: 无法探查{top_tag}")
+        else:
+            msg.append(f"{rank}. {name}({pet_type}) - 主人:{owner_name}\n成长值: {growth:.1f}{top_tag}")
 
     msg_str = "\n".join(msg)
     chain = await build_forward_chain(bot, [msg_str])
@@ -1114,54 +1134,72 @@ async def handle_my_pet_ranking(event: Event, bot: Bot, uid: int = Depends(get_u
         await pet_my_ranking_cmd.finish("只有成年体宠物可以查看排名哦！", at_sender=True)
 
     user_pets = await get_user_pets()
-    from ...su_manager import get_all_su_uids
-    su_uids = get_all_su_uids()
+    from ...su_manager import get_excluded_su_uids
+    from ..feisheng.data import get_all_pet_feisheng_status
+    excluded_suids = get_excluded_su_uids()
+    feisheng_status = await get_all_pet_feisheng_status()
     
     valid_pets = []
     for uid_key, p in user_pets.items():
-        # 过滤 SU 用户
+        # 过滤需要排除的 SU 用户（保留 level 1 的 SU）
         try:
-            if int(uid_key) in su_uids:
+            if int(uid_key) in excluded_suids:
                 continue
         except (ValueError, TypeError):
-            if uid_key in su_uids:
+            if uid_key in excluded_suids:
                 continue
         if p.get("stage") != 2:
             continue
         temp_pet = dict(p)
         temp_pet = await update_pet_status(temp_pet)
         if not temp_pet.get("runaway", False):
+            # 获取飞升状态
+            uid_int = int(uid_key) if isinstance(uid_key, (str, int)) else uid_key
+            fs = feisheng_status.get(uid_int, {"is_pet_ascended": False, "is_ascended": False})
+            is_pet_ascended = fs["is_pet_ascended"]
+            is_user_ascended = fs["is_ascended"]
+            # 宠物飞升 → 一律置顶
+            is_top = is_pet_ascended
+            # 用户也飞升 → 屏蔽成长值
+            hide_growth = is_pet_ascended and is_user_ascended
             valid_pets.append((
                 temp_pet["growth"],
                 uid_key,
-                temp_pet.get("name", "未知宠物")
+                temp_pet.get("name", "未知宠物"),
+                is_top,
+                hide_growth
             ))
 
     if not valid_pets:
         await pet_my_ranking_cmd.finish("目前还没有有效的成年体宠物上榜哦！", at_sender=True)
 
-    valid_pets.sort(reverse=True, key=lambda x: x[0])
+    # 排序：宠物飞升的置顶；宠物飞升中，用户已飞升的排在用户未飞升的上方；同组内按成长值降序
+    valid_pets.sort(key=lambda x: (x[3], x[4], x[0]), reverse=True)
 
     # 计算排名（处理并列情况）
     rankings = {}
     current_rank = 1
-    prev_growth = None
-    for idx, (growth, uid_key, name) in enumerate(valid_pets):
-        if growth != prev_growth:
+    prev_key = None
+    for idx, (growth, uid_key, name, is_top, hide_growth) in enumerate(valid_pets):
+        # 飞升宠物和非飞升宠物分组排名
+        key = (is_top, hide_growth, growth)
+        if key != prev_key:
             current_rank = idx + 1
-        rankings[uid_key] = (current_rank, growth)
-        prev_growth = growth
+        rankings[uid_key] = (current_rank, growth, is_top, hide_growth)
+        prev_key = key
 
     my_rank_info = rankings.get(uid) or rankings.get(str(uid))
     if my_rank_info is None:
         await pet_my_ranking_cmd.finish("你的宠物未上榜！", at_sender=True)
     else:
-        my_rank, my_growth = my_rank_info
+        my_rank, my_growth, is_top, hide_growth = my_rank_info
         total_pets = len(valid_pets)
+        top_tag = " ✨" if is_top else ""
+        growth_str = "无法探查" if hide_growth else f"{my_growth:.1f}"
         await pet_my_ranking_cmd.finish(
             f"\n你的宠物【{pet['name']}】"
             f"\n当前排名: 第{my_rank}名（共{total_pets}只成年宠物）"
-            f"\n成长值: {my_growth:.1f}",
+            f"\n成长值: {growth_str}{top_tag}",
             at_sender=True
         )
 

@@ -44,5 +44,3 @@ src/fonts/*.woff2
 *.db
 
 # SU
-plugins/su_register/
-plugins/feisheng/
