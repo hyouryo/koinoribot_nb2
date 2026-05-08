@@ -25,6 +25,7 @@ venv/
 ENV/
 env/
 .venv/
+koinori_config.py
 
 # IDE
 .idea/
