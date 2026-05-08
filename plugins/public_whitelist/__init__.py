@@ -40,7 +40,7 @@ __plugin_meta__ = PluginMetadata(
 # ================== 数据库 ==================
 
 def _get_db_path() -> str:
-    plugin_dir = Path(__file__).parent.parent
+    plugin_dir = Path(__file__).parent.parent.parent
     return str(plugin_dir / "src" / "database" / "koinoribot.db")
 
 
