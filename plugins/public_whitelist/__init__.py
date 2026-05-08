@@ -61,6 +61,7 @@ def _init_tables():
                 bot_qq TEXT NOT NULL,
                 reason TEXT NOT NULL DEFAULT '',
                 compliance_commit TEXT NOT NULL DEFAULT '',
+                tech_commit TEXT NOT NULL DEFAULT '',
                 group_id TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'pending',
                 reviewer_qq TEXT DEFAULT NULL,
@@ -296,6 +297,7 @@ async def handle_adopt_start(
         'bot_qq': '',
         'reason': '',
         'compliance_commit': '',
+        'tech_commit': '',
         'group_id': group_id,
     }
 
@@ -399,12 +401,45 @@ async def handle_step_compliance(
         )
 
     ctx['compliance_commit'] = user_input
+    await adopt_cmd.send(
+        "云冰祈需要你自行搭建使用onebotv11协议的bot客户端并新建ws反向连接。\n"
+        "请确认你了解这一技术要求：\n\n"
+        "请回复 我已经搭建bot客户端 确认：",
+        at_sender=True
+    )
+    await adopt_cmd.pause()
+
+
+@adopt_cmd.handle()
+async def handle_step_tech_confirm(
+    event: Event,
+    bot: Bot,
+    uid: int = Depends(get_uid)
+):
+    """第五步：确认技术能力"""
+    user_id = event.get_user_id()
+    user_input = event.get_plaintext().strip()
+    ctx = _apply_context.get(user_id)
+    if not ctx:
+        return
+    if user_input == '退出':
+        _apply_context.pop(user_id, None)
+        await adopt_cmd.finish("已结束领养云冰祈~", at_sender=True)
+
+    if user_input != '我已经搭建bot客户端':
+        await adopt_cmd.reject(
+            "请回复 我已经搭建bot客户端 来确认，或回复 退出 取消申请",
+            at_sender=True
+        )
+
+    ctx['tech_commit'] = user_input
     summary = (
         "=== 领养申请确认 ===\n"
         f"主人QQ: {ctx['owner_qq']}\n"
         f"bot QQ: {ctx['bot_qq']}\n"
         f"领养理由: {ctx['reason']}\n"
         f"合规承诺: {ctx['compliance_commit']}\n"
+        f"技术确认: {ctx['tech_commit']}\n"
         f"申请群号: {ctx['group_id']}\n"
         f"申请时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"==================\n"
@@ -420,7 +455,7 @@ async def handle_step_confirm(
     bot: Bot,
     uid: int = Depends(get_uid)
 ):
-    """第五步：确认提交"""
+    """第六步：确认提交"""
     user_id = event.get_user_id()
     user_input = event.get_plaintext().strip()
     ctx = _apply_context.get(user_id)
@@ -442,10 +477,10 @@ async def handle_step_confirm(
         cursor = conn.cursor()
         cursor.execute(
             '''INSERT INTO whitelist_review
-               (owner_qq, bot_qq, reason, compliance_commit, group_id, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)''',
+               (owner_qq, bot_qq, reason, compliance_commit, tech_commit, group_id, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
             (ctx['owner_qq'], ctx['bot_qq'], ctx['reason'],
-             ctx['compliance_commit'], ctx['group_id'], 'pending', now_iso)
+             ctx['compliance_commit'], ctx.get('tech_commit', ''), ctx['group_id'], 'pending', now_iso)
         )
         conn.commit()
         review_id = cursor.lastrowid
@@ -493,7 +528,7 @@ async def handle_review_list(
     try:
         rows = conn.execute(
             '''SELECT id, owner_qq, bot_qq, reason, compliance_commit,
-                      group_id, created_at
+                      tech_commit, group_id, created_at
                FROM whitelist_review
                WHERE status = 'pending'
                ORDER BY id ASC'''
@@ -512,8 +547,9 @@ async def handle_review_list(
             f"bot QQ: {row[2]}\n"
             f"领养理由: {row[3]}\n"
             f"合规承诺: {row[4]}\n"
-            f"申请群号: {row[5]}\n"
-            f"申请时间: {row[6]}\n"
+            f"技术确认: {row[5]}\n"
+            f"申请群号: {row[6]}\n"
+            f"申请时间: {row[7]}\n"
             "——————————————\n"
             "操作: 审核通过 {id}  或  审核拒绝 {id} [理由]"
         )
