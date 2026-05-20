@@ -371,14 +371,10 @@ async def do_draw(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
 
     try:
         english_prompt = await translate_prompt(_config["deepseek_api_key"], user_text)
-        #await draw_cmd.send(f"提示词: {english_prompt}")
-
         image_bytes = await generate_image(
             _config["gpt_image_api_key"], english_prompt
         )
         image_msg = build_image_msg(event, image_bytes)
-        await draw_cmd.finish(image_msg)
-
     except RuntimeError as e:
         wallet.gold += DRAW_COST
         logger.error(f"画图失败: {e}")
@@ -387,6 +383,8 @@ async def do_draw(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
         wallet.gold += DRAW_COST
         logger.error(f"画图异常: {type(e).__name__}: {e}")
         await draw_cmd.finish(f"画图出错了: {type(e).__name__}\n已退还 10万 金币。", at_sender=True)
+    else:
+        await draw_cmd.finish(image_msg)
 
 
 async def do_edit(event: Event, uid: int, wallet: UserWallet, user_text: str) -> None:
@@ -421,14 +419,10 @@ async def do_edit(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
 
     try:
         english_prompt = await translate_prompt(_config["deepseek_api_key"], prompt)
-        #await edit_cmd.send(f"提示词: {english_prompt}")
-
         image_bytes = await generate_image_edit(
             _config["gpt_image_api_key"], english_prompt, ref_image
         )
         image_msg = build_image_msg(event, image_bytes)
-        await edit_cmd.finish(image_msg)
-
     except RuntimeError as e:
         wallet.gold += DRAW_COST
         logger.error(f"修图失败: {e}")
@@ -437,6 +431,8 @@ async def do_edit(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
         wallet.gold += DRAW_COST
         logger.error(f"修图异常: {type(e).__name__}: {e}")
         await edit_cmd.finish(f"修图出错了: {type(e).__name__}\n已退还 10万 金币。", at_sender=True)
+    else:
+        await edit_cmd.finish(image_msg)
 
 
 # ═══════════════ 命令入口 ═══════════════
