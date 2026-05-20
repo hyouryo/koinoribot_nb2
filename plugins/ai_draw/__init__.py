@@ -59,10 +59,6 @@ CONFIG_PATH = PLUGIN_DIR / "config.json"
 # 运行时配置 (启动时从 config.json 加载)
 _config: dict = {}
 
-# 费用与限制
-DRAW_COST = 100000
-DAILY_LIMIT = 5
-
 # DeepSeek 系统提示词
 PROMPT_TRANSLATE_SYSTEM = """You are a professional image prompt engineer. Your task is to convert the user's Chinese description into a concise, high-quality English prompt suitable for AI image generation (DALL-E / GPT-Image-2).
 
@@ -73,9 +69,12 @@ Rules:
 4. Preserve the user's intent faithfully — do not add concepts the user didn't mention."""
 
 DEFAULT_CONFIG = {
-    "comment": "AI画图插件配置 — deepseek_api_key 用于翻译提示词，gpt_image_api_key 用于生成图像",
+    "comment": "AI画图插件配置",
     "deepseek_api_key": "",
-    "gpt_image_api_key": ""
+    "gpt_image_api_key": "",
+    "draw_cost": 100000,
+    "daily_limit": 5,
+    "enable": True,
 }
 
 
@@ -134,7 +133,7 @@ async def check_and_increment_daily_limit(uid: int) -> bool:
                 conn.commit()
                 return True
 
-            if row["count"] >= DAILY_LIMIT:
+            if row["count"] >= _config["daily_limit"]:
                 return False
 
             conn.execute(
@@ -341,17 +340,17 @@ async def check_quota_and_pay(uid: int, wallet: UserWallet, cmd) -> bool:
     if get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
         ok = await check_and_increment_daily_limit(uid)
         if not ok:
-            await cmd.finish(f"你一天只能了 {DAILY_LIMIT} 张图，明天再来吧~", at_sender=True)
+            await cmd.finish(f"你一天只能了 {_config['daily_limit']} 张图，明天再来吧~", at_sender=True)
             return False
 
-    if wallet.gold < DRAW_COST:
+    if wallet.gold < _config["draw_cost"]:
         await cmd.finish(
-            f"金币不足！画一张图需要 {DRAW_COST} 金币，你当前只有 {wallet.gold} 金币。",
+            f"金币不足！画一张图需要 {_config['draw_cost']} 金币，你当前只有 {wallet.gold} 金币。",
             at_sender=True,
         )
         return False
 
-    wallet.gold -= DRAW_COST
+    wallet.gold -= _config["draw_cost"]
     return True
 
 
@@ -375,11 +374,11 @@ async def do_draw(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
-        wallet.gold += DRAW_COST
+        wallet.gold += _config["draw_cost"]
         logger.error(f"画图失败: {e}")
         await draw_cmd.finish(f"画图失败: {e}\n已退还金币。", at_sender=True)
     except Exception as e:
-        wallet.gold += DRAW_COST
+        wallet.gold += _config["draw_cost"]
         logger.error(f"画图异常: {type(e).__name__}: {e}")
         await draw_cmd.finish(f"画图出错了: {type(e).__name__}\n已退还 10万 金币。", at_sender=True)
     else:
@@ -422,11 +421,11 @@ async def do_edit(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
-        wallet.gold += DRAW_COST
+        wallet.gold += _config["draw_cost"]
         logger.error(f"修图失败: {e}")
         await edit_cmd.finish(f"修图失败: {e}\n已退还 10万 金币。", at_sender=True)
     except Exception as e:
-        wallet.gold += DRAW_COST
+        wallet.gold += _config["draw_cost"]
         logger.error(f"修图异常: {type(e).__name__}: {e}")
         await edit_cmd.finish(f"修图出错了: {type(e).__name__}\n已退还 10万 金币。", at_sender=True)
     else:
@@ -450,6 +449,8 @@ async def handle_draw(
         await draw_cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
     if is_qqbot(event):
         await draw_cmd.finish("AI画图功能暂不支持QQbot~", at_sender=True)
+    if not cfg.get("enable", True) and get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
+        await draw_cmd.finish("AI画图功能维护中，暂时不可用~", at_sender=True)
 
     user_text = args.extract_plain_text().strip()
     if not user_text:
@@ -473,6 +474,8 @@ async def handle_edit(
         await edit_cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
     if is_qqbot(event):
         await edit_cmd.finish("AI修图功能暂不支持QQbot~", at_sender=True)
+    if not cfg.get("enable", True) and get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
+        await edit_cmd.finish("AI修图功能维护中，暂时不可用~", at_sender=True)
 
     user_text = args.extract_plain_text().strip()
     await do_edit(event, uid, wallet, user_text)
