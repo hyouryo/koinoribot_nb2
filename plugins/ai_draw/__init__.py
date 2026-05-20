@@ -285,7 +285,7 @@ async def _download_result(session: aiohttp.ClientSession, data: dict) -> bytes:
 
 
 async def generate_image(
-    api_key: str, aimodel_list_id: int, prompt: str, size: str = "auto"
+    api_key: str, prompt: str, size: str = "auto"
 ) -> bytes:
     """调用 GPT-Image-2 文本生图"""
     url = "https://www.guanxingyun.com/aimodelapi/v1/images/generations"
@@ -293,7 +293,7 @@ async def generate_image(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    payload = {"model": "gpt-image-2-all", "aimodel_list_id": aimodel_list_id, "prompt": prompt, "size": size}
+    payload = {"model": "gpt-image-2-all", "prompt": prompt, "size": size}
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json=payload, timeout=120) as resp:
@@ -307,7 +307,7 @@ async def generate_image(
 
 
 async def generate_image_edit(
-    api_key: str, aimodel_list_id: int, prompt: str, image_bytes: bytes, size: str = "auto"
+    api_key: str, prompt: str, image_bytes: bytes, size: str = "auto"
 ) -> bytes:
     """调用 GPT-Image-2 图片编辑（含参考图）"""
     url = "https://www.guanxingyun.com/aimodelapi/v1/images/edits"
@@ -320,7 +320,6 @@ async def generate_image_edit(
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "X-Aimodel-List-Id": str(aimodel_list_id),
     }
 
     async with aiohttp.ClientSession() as session:
