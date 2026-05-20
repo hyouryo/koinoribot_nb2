@@ -21,7 +21,7 @@ from nonebot.log import logger
 from nonebot.params import CommandArg, Depends
 from nonebot.plugin import PluginMetadata
 
-from ...money import UserWallet, wallet_manager
+from ...money import UserWallet, wallet_manager, get_database_path
 from ...su_manager import get_su_level, SU_LEVEL_CONTRIBUTOR
 from ...tools import get_uid, build_image_msg, is_onebot, is_qqbot
 from ...utils import FreqLimiter
@@ -55,7 +55,6 @@ edit_cmd = on_command(
 # 插件目录
 PLUGIN_DIR = Path(__file__).parent
 CONFIG_PATH = PLUGIN_DIR / "config.json"
-DB_PATH = PLUGIN_DIR / "ai_draw.db"
 
 # 运行时配置 (启动时从 config.json 加载)
 _config: dict = {}
@@ -76,8 +75,7 @@ Rules:
 DEFAULT_CONFIG = {
     "comment": "AI画图插件配置 — deepseek_api_key 用于翻译提示词，gpt_image_api_key 用于生成图像",
     "deepseek_api_key": "",
-    "gpt_image_api_key": "",
-    "gpt_image_aimodel_list_id": 96,
+    "gpt_image_api_key": ""
 }
 
 
@@ -88,7 +86,7 @@ def get_config() -> dict:
 # ═══════════════ SQLite 日限 ═══════════════
 
 def _get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(get_database_path())
     conn.row_factory = sqlite3.Row
     return conn
 
