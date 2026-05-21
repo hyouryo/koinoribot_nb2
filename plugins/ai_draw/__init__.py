@@ -304,11 +304,11 @@ async def generate_image(
     payload = {"model": _config["gpt_image_model"], "prompt": prompt, "size": size}
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload, timeout=180) as resp:
+        async with session.post(url, headers=headers, json=payload, timeout=300) as resp:
             if resp.status != 200:
                 text = await resp.text()
                 logger.error(f"GPT-Image-2 API error: {resp.status} {text}")
-                raise RuntimeError(f"GPT-Image-2 API 返回错误: {resp.status}")
+                raise RuntimeError(f"GPT-Image-2 API 返回错误: {resp.status}\n{text}")
             data = await resp.json()
             logger.debug(f"GPT-Image-2 response: {json.dumps(data, ensure_ascii=False)[:500]}")
             return await _download_result(session, data)
@@ -331,11 +331,11 @@ async def generate_image_edit(
     }
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, data=form_data, timeout=180) as resp:
+        async with session.post(url, headers=headers, data=form_data, timeout=300) as resp:
             if resp.status != 200:
                 text = await resp.text()
                 logger.error(f"GPT-Image-2 Edit API error: {resp.status} {text}")
-                raise RuntimeError(f"GPT-Image-2 图片编辑 API 返回错误: {resp.status}")
+                raise RuntimeError(f"GPT-Image-2 图片编辑 API 返回错误: {resp.status}\n{text}")
             data = await resp.json()
             logger.debug(f"GPT-Image-2 Edit response: {json.dumps(data, ensure_ascii=False)[:500]}")
             return await _download_result(session, data)
