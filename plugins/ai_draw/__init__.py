@@ -266,7 +266,13 @@ async def translate_prompt(api_key: str, user_text: str) -> str:
 # ═══════════════ GPT-Image-2 ═══════════════
 
 async def _download_result(session: aiohttp.ClientSession, data: dict) -> bytes:
-    """从 GPT-Image-2 响应中提取图像"""
+    """从 GPT-Image-2 响应中提取图像，若响应包含业务错误则直接抛出"""
+    # 先检查响应体是否包含业务错误（HTTP 200 但实际失败的情况）
+    relay_error = data.get("RelayError") or data.get("error")
+    if relay_error:
+        msg = relay_error if isinstance(relay_error, str) else relay_error.get("message", str(relay_error))
+        raise RuntimeError(f"GPT-Image-2 API 返回错误: {msg}")
+
     image_url = None
     if "data" in data and len(data["data"]) > 0:
         item = data["data"][0]
@@ -289,7 +295,7 @@ async def _download_result(session: aiohttp.ClientSession, data: dict) -> bytes:
     if b64:
         return base64.b64decode(b64)
 
-    raise RuntimeError(f"无法解析图像数据，响应: {json.dumps(data, ensure_ascii=False)[:300]}")
+    raise RuntimeError(f"无法解析图像数据，响应: {json.dumps(data, ensure_ascii=False)[:500]}")
 
 
 async def generate_image(
