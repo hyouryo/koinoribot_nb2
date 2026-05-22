@@ -15,6 +15,10 @@ class KoinoribotConfig(BaseModel):
     # ================== 腾讯 API ==================
     tx_secret_id: str = ""
     tx_secret_key: str = ""
+
+    # ================== 官Bot AppID ==================
+    qqbot_appid: str = ""                                              # 官方Bot AppID，用于通过 openid 获取用户昵称和头像
+    qqbot_openid_api: str = "https://oiapi.net/api/Openid"            # OpenID 查询 API 地址
     
     # ================== 天行 API ==================
     tianxing_apikey: str = ""
@@ -74,6 +78,15 @@ class KoinoribotConfig(BaseModel):
     maxtype: int = 4                        # 股票持有种类上限
     maxcount: int = 500                     # 每种股票持有数量上限
     
+    # ================== AI画图配置 ==================
+    deepseek_api_key: str = ""                                         # DeepSeek API Key (用于翻译提示词)
+    gpt_image_api_key: str = ""                                        # GPT-Image-2 API Key
+    gpt_image_api_base_url: str = "https://api.example.com/v1"
+    gpt_image_model: str = "gpt-image-2"
+    draw_cost: int = 200000                                            # 画图消耗金币
+    daily_limit: int = 3                                               # 每日画图次数限制
+    ai_draw_enable: bool = True                                        # 是否启用AI画图功能
+
     # ================== 其他配置 ==================
     star_price: int = 0                     # 多连钓鱼是否消耗星星
     extra_gold: int = 1                     # 钓鱼补贴开关
@@ -88,6 +101,7 @@ class KoinoribotConfig(BaseModel):
     public_bot: bool = False                 # 是否启用云bot模式
     permit_bot: list = []                   # 自己的bot账号列表（如果上面一项为True，则此项必填）
     permit_group: list = []                 # 允许领养云冰祈的群聊
+    ip_address: str = ""                    # 本机公网ip地址（公网白名单模式下必填）
 
     # 超级用户
     superusers: list = [10002, 10001]

@@ -4,7 +4,8 @@ from nonebot.plugin import PluginMetadata
 from nonebot.adapters.onebot.v11 import Bot, Event
 import time
 
-from ...money import UserWallet, wallet_manager
+from ...money import money
+from ...tools import get_uid
 
 __plugin_meta__ = PluginMetadata(
     name="say_goodnight",
@@ -21,20 +22,21 @@ cooldown = {}
 async def say_goodnight_handle(
     bot: Bot,
     event: Event,
-    user_wallet: UserWallet = Depends(wallet_manager),
+    uid: int = Depends(get_uid),
 ) -> None:
     user_id = event.get_user_id()
-    
+
     if user_id == str(bot.self_id):
         return
-    
+
     now = time.time()
     if user_id in cooldown and now - cooldown[user_id] < 10:
         return
     cooldown[user_id] = now
-    
-    if user_wallet.gold >= 50:
-        user_wallet.gold -= 50
+
+    user_gold = money.get_user_money(uid, "gold") or 0
+    if user_gold >= 50:
+        money.reduce_user_money(uid, "gold", 50)
         await say_goodnight.finish("晚安喵")
     else:
         return

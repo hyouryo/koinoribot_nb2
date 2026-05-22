@@ -29,7 +29,7 @@ from ...tools import (
 )
 from ...uid_manager import get_external_ids
 from ...su_manager import is_su
-from ...koinori_config import get_config
+from ...koinori_config import config as koinori_config
 
 __plugin_meta__ = PluginMetadata(
     name="public_whitelist",
@@ -149,44 +149,20 @@ def get_whitelist_size() -> int:
 
 # ================== WS地址配置 ==================
 
-_address_config: dict = {}
-_address_file: Path = Path(__file__).parent / "address.json"
-
-ADDRESS_TEMPLATE = {
-    "ws_address": "ws://your_ip:port/ws",
-    "connection_help": [
-        "请依次对你的bot私聊发送以下每一行内容。(确保你的云崽安装了ws-plugin)",
-        "#ws添加连接",
-        "ko,1",
-        "ws://your_ip:port/ws,5,0"
-    ]
-}
-
-
-def load_address_config():
-    """加载 address.json，不存在则创建空白模板"""
-    global _address_config
-    if _address_file.exists():
-        try:
-            with open(_address_file, 'r', encoding='utf-8') as f:
-                _address_config = json.load(f)
-            logger.info(f"[public_whitelist] 已加载WS地址配置: {_address_config.get('ws_address', '未设置')}")
-        except Exception as e:
-            logger.warning(f"[public_whitelist] 加载 address.json 失败: {e}，使用空白模板")
-            _address_config = ADDRESS_TEMPLATE.copy()
-    else:
-        _address_config = ADDRESS_TEMPLATE.copy()
-        try:
-            with open(_address_file, 'w', encoding='utf-8') as f:
-                json.dump(ADDRESS_TEMPLATE, f, ensure_ascii=False, indent=2)
-            logger.info(f"[public_whitelist] 已创建 address.json 模板: {_address_file}")
-        except Exception as e:
-            logger.warning(f"[public_whitelist] 创建 address.json 失败: {e}")
-
 
 def get_ws_info() -> dict:
-    """获取WS连接信息"""
-    return _address_config.copy()
+    """获取WS连接信息（地址根据 ip_address + driver.port 自动拼接）"""
+    port = get_driver().config.port
+    ws_address = f"ws://{koinori_config.ip_address}:{port}/onebot/v11/ws"
+    return {
+        "ws_address": ws_address,
+        "connection_help": [
+            "请依次对你的bot私聊发送以下每一行内容。(确保你的云崽安装了ws-plugin)",
+            "#ws添加连接",
+            "ko,1",
+            f"{ws_address},5,0",
+        ],
+    }
 
 
 # ================== 跨平台私信 ==================
@@ -220,8 +196,7 @@ async def send_private_message(bot: Bot, event: Event, uid: int, message: str):
 
 @event_preprocessor
 async def _whitelist_filter(event: Event):
-    config = get_config()
-    if not config.public_bot:
+    if not koinori_config.public_bot:
         return
 
     self_id = str(getattr(event, 'self_id', ''))
@@ -229,7 +204,7 @@ async def _whitelist_filter(event: Event):
         return
 
     # koinori自己的bot账号不受白名单限制
-    permit_bot = {str(b) for b in config.permit_bot}
+    permit_bot = {str(b) for b in koinori_config.permit_bot}
     if self_id in permit_bot:
         return
 
@@ -801,4 +776,3 @@ driver = get_driver()
 async def _init_whitelist():
     _init_tables()
     load_cache()
-    load_address_config()

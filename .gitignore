@@ -32,6 +32,8 @@ env/
 .vscode/
 *.swp
 *.swo
+.claude/
+
 
 # 版权字体文件
 # Copyright-protected fonts

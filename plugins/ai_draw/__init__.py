@@ -11,8 +11,6 @@ import json
 import base64
 import sqlite3
 import time
-from pathlib import Path
-
 import aiohttp
 from nonebot import on_command, get_driver
 from nonebot.adapters import Event, Bot
@@ -22,9 +20,10 @@ from nonebot.log import logger
 from nonebot.params import CommandArg, Depends
 from nonebot.plugin import PluginMetadata
 
-from ...money import UserWallet, wallet_manager, get_database_path
+from ...money import money, get_database_path
 from ...su_manager import get_su_level, SU_LEVEL_CONTRIBUTOR
 from ...tools import get_uid, build_image_msg, is_onebot, is_qqbot
+from ...koinori_config import config as koinori_config
 from ...utils import FreqLimiter
 
 __plugin_meta__ = PluginMetadata(
@@ -53,13 +52,6 @@ edit_cmd = on_command(
     "冰祈修图", aliases={"梦灵修图"}, priority=5, block=True
 )
 
-# 插件目录
-PLUGIN_DIR = Path(__file__).parent
-CONFIG_PATH = PLUGIN_DIR / "config.json"
-
-# 运行时配置 (启动时从 config.json 加载)
-_config: dict = {}
-
 # DeepSeek 系统提示词
 PROMPT_TRANSLATE_SYSTEM = """You are a professional image prompt engineer. Your task is to convert the user's Chinese description into a concise, high-quality English prompt suitable for AI image generation (DALL-E / GPT-Image-2).
 
@@ -68,22 +60,6 @@ Rules:
 2. The prompt should be vivid and descriptive, including style, lighting, composition details.
 3. Keep it under 200 characters.
 4. Preserve the user's intent faithfully — do not add concepts the user didn't mention."""
-
-DEFAULT_CONFIG = {
-    "comment": "AI画图插件配置",
-    "deepseek_api_key": "",
-    "gpt_image_api_key": "",
-    "gpt_image_api_base_url": "https://www.guanxingyun.com/aimodelapi/v1",
-    "gpt_image_model": "gpt-image-2-all",
-    "draw_cost": 100000,
-    "daily_limit": 5,
-    "enable": True,
-}
-
-
-def get_config() -> dict:
-    return _config
-
 
 # ═══════════════ SQLite 日限 ═══════════════
 
@@ -136,7 +112,7 @@ async def check_and_increment_daily_limit(uid: int) -> bool:
                 conn.commit()
                 return True
 
-            if row["count"] >= _config["daily_limit"]:
+            if row["count"] >= koinori_config.daily_limit:
                 return False
 
             conn.execute(
@@ -153,45 +129,14 @@ async def check_and_increment_daily_limit(uid: int) -> bool:
 
 @driver.on_startup
 async def on_startup():
-    """异步加载 config.json 并初始化数据库"""
-    # config.json
-    try:
-        text = await _async_read_file(CONFIG_PATH)
-        loaded = json.loads(text)
-        # 迁移：补充 DEFAULT_CONFIG 中存在但 loaded 中缺失的键
-        missing = {k: v for k, v in DEFAULT_CONFIG.items() if k not in loaded}
-        if missing:
-            loaded.update(missing)
-            await _async_write_file(CONFIG_PATH, json.dumps(loaded, indent=2, ensure_ascii=False))
-            logger.info(f"ai_draw config.json 已迁移，补充了缺失的键: {list(missing.keys())}")
-        _config.update(loaded)
-        logger.info(
-            "ai_draw config.json 加载成功 "
-            f"(deepseek_key={'***' if _config.get('deepseek_api_key') else '未配置'}, "
-            f"gpt_image_key={'***' if _config.get('gpt_image_api_key') else '未配置'})"
-        )
-    except FileNotFoundError:
-        await _async_write_file(CONFIG_PATH, json.dumps(DEFAULT_CONFIG, indent=2, ensure_ascii=False))
-        _config.update(DEFAULT_CONFIG)
-        logger.info("ai_draw config.json 已自动创建，请填写 API Key")
-    except Exception as e:
-        logger.error(f"ai_draw config.json 加载失败: {e}")
-        _config.update(DEFAULT_CONFIG)
-
-    # SQLite
+    """初始化数据库"""
     loop = __import__("asyncio").get_event_loop()
     await loop.run_in_executor(None, init_db)
-    logger.info("ai_draw 数据库初始化完成")
-
-
-async def _async_read_file(path: Path) -> str:
-    loop = __import__("asyncio").get_event_loop()
-    return await loop.run_in_executor(None, lambda: path.read_text(encoding="utf-8"))
-
-
-async def _async_write_file(path: Path, content: str) -> None:
-    loop = __import__("asyncio").get_event_loop()
-    await loop.run_in_executor(None, lambda: path.write_text(content, encoding="utf-8"))
+    logger.info(
+        f"ai_draw 初始化完成 "
+        f"(deepseek_key={'***' if koinori_config.deepseek_api_key else '未配置'}, "
+        f"gpt_image_key={'***' if koinori_config.gpt_image_api_key else '未配置'})"
+    )
 
 
 # ═══════════════ 图片提取 ═══════════════
@@ -306,12 +251,12 @@ async def generate_image(
     api_key: str, prompt: str, size: str = "auto"
 ) -> bytes:
     """调用 GPT-Image-2 文本生图"""
-    url = f"{_config['gpt_image_api_base_url']}/images/generations"
+    url = f"{koinori_config.gpt_image_api_base_url}/images/generations"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    payload = {"model": _config["gpt_image_model"], "prompt": prompt, "size": size}
+    payload = {"model": koinori_config.gpt_image_model, "prompt": prompt, "size": size}
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json=payload, timeout=300) as resp:
@@ -334,10 +279,10 @@ async def generate_image_edit(
     api_key: str, prompt: str, image_bytes: bytes, size: str = "auto"
 ) -> bytes:
     """调用 GPT-Image-2 图片编辑（含参考图）"""
-    url = f"{_config['gpt_image_api_base_url']}/images/edits"
+    url = f"{koinori_config.gpt_image_api_base_url}/images/edits"
 
     form_data = aiohttp.FormData()
-    form_data.add_field("model", _config["gpt_image_model"])
+    form_data.add_field("model", koinori_config.gpt_image_model)
     form_data.add_field("prompt", prompt)
     form_data.add_field("size", size)
     form_data.add_field("image", image_bytes, filename="reference.png", content_type="image/png")
@@ -365,31 +310,32 @@ async def generate_image_edit(
 
 # ═══════════════ 费用 & 日限检查 ═══════════════
 
-async def check_quota_and_pay(uid: int, wallet: UserWallet, cmd) -> bool:
+async def check_quota_and_pay(uid: int, cmd) -> bool:
     """检查日限和余额，任意不满足则发送提示并返回 False；通过则扣款+递增日限并返回 True"""
     # level 0 SU 不受日限
     if get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
         ok = await check_and_increment_daily_limit(uid)
         if not ok:
-            await cmd.finish(f"你一天只能画 {_config['daily_limit']} 张图，明天再来吧~", at_sender=True)
+            await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~", at_sender=True)
             return False
 
-    if wallet.gold < _config["draw_cost"]:
+    user_gold = money.get_user_money(uid, "gold") or 0
+    if user_gold < koinori_config.draw_cost:
         await cmd.finish(
-            f"金币不足！画一张图需要 {_config['draw_cost']} 金币，你当前只有 {wallet.gold} 金币。",
+            f"金币不足！画一张图需要 {koinori_config.draw_cost} 金币，你当前只有 {user_gold} 金币。",
             at_sender=True,
         )
         return False
 
-    wallet.gold -= _config["draw_cost"]
+    money.reduce_user_money(uid, "gold", koinori_config.draw_cost)
     return True
 
 
 # ═══════════════ 画图处理 ═══════════════
 
-async def do_draw(event: Event, uid: int, wallet: UserWallet, user_text: str) -> None:
+async def do_draw(event: Event, uid: int, user_text: str) -> None:
     """执行文本生图"""
-    if not await check_quota_and_pay(uid, wallet, draw_cmd):
+    if not await check_quota_and_pay(uid, draw_cmd):
         return
 
     if not draw_limiter.check(uid):
@@ -397,19 +343,19 @@ async def do_draw(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
         await draw_cmd.finish(f"画图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
     draw_limiter.start_cd(uid)
 
-    await draw_cmd.send(f"少女画图中…\n已扣除{_config['draw_cost']}金币")
+    await draw_cmd.send(f"少女画图中…\n已扣除{koinori_config.draw_cost}金币")
 
     try:
         image_bytes = await generate_image(
-            _config["gpt_image_api_key"], user_text
+            koinori_config.gpt_image_api_key, user_text
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
-        wallet.gold += _config["draw_cost"]
+        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
         logger.error(f"画图失败: {e}")
         await draw_cmd.finish(f"画图失败: {e}\n已退还金币。", at_sender=True)
     except Exception as e:
-        wallet.gold += _config["draw_cost"]
+        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
         logger.error(f"画图异常: {type(e).__name__}: {e}")
         await draw_cmd.finish(f"画图出错了: {e}\n已退还金币。", at_sender=True)
     else:
@@ -420,7 +366,7 @@ async def do_draw(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
         await draw_cmd.finish()
 
 
-async def do_edit(event: Event, uid: int, wallet: UserWallet, user_text: str) -> None:
+async def do_edit(event: Event, uid: int, user_text: str) -> None:
     """执行图片编辑"""
     try:
         ref_image = await extract_image(event)
@@ -439,7 +385,7 @@ async def do_edit(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
         await edit_cmd.finish("请输入修图描述，例如: 冰祈修图[附带图片] 把猫变成金色的", at_sender=True)
         return
 
-    if not await check_quota_and_pay(uid, wallet, edit_cmd):
+    if not await check_quota_and_pay(uid, edit_cmd):
         return
 
     if not draw_limiter.check(uid):
@@ -448,19 +394,20 @@ async def do_edit(event: Event, uid: int, wallet: UserWallet, user_text: str) ->
     draw_limiter.start_cd(uid)
 
     prompt = user_text.strip()
-    await edit_cmd.send(f"少女修图中…\n已扣除 {_config['draw_cost']} 金币 (剩余 {wallet.gold})")
+    user_gold_after = money.get_user_money(uid, "gold") or 0
+    await edit_cmd.send(f"少女修图中…\n已扣除 {koinori_config.draw_cost} 金币 (剩余 {user_gold_after})")
 
     try:
         image_bytes = await generate_image_edit(
-            _config["gpt_image_api_key"], prompt, ref_image
+            koinori_config.gpt_image_api_key, prompt, ref_image
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
-        wallet.gold += _config["draw_cost"]
+        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
         logger.error(f"修图失败: {e}")
         await edit_cmd.finish(f"修图失败: {e}\n已退还金币。", at_sender=True)
     except Exception as e:
-        wallet.gold += _config["draw_cost"]
+        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
         logger.error(f"修图异常: {type(e).__name__}: {e}")
         await edit_cmd.finish(f"修图出错了: {e}\n已退还金币。", at_sender=True)
     else:
@@ -479,23 +426,21 @@ async def handle_draw(
     bot: Bot,
     args: Message = CommandArg(),
     uid: int = Depends(get_uid),
-    wallet: UserWallet = Depends(wallet_manager),
 ):
-    cfg = get_config()
-    if not cfg.get("deepseek_api_key"):
+    if not koinori_config.deepseek_api_key:
         await draw_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
-    if not cfg.get("gpt_image_api_key"):
+    if not koinori_config.gpt_image_api_key:
         await draw_cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
     if is_qqbot(event):
         await draw_cmd.finish("AI画图功能暂不支持QQbot~", at_sender=True)
-    if not cfg.get("enable", True) and get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
+    if not koinori_config.ai_draw_enable and get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
         await draw_cmd.finish("AI画图功能维护中，暂时不可用~", at_sender=True)
 
     user_text = args.extract_plain_text().strip()
     if not user_text:
         await draw_cmd.finish("请输入画图描述，例如: ml冰祈画图 一只可爱的猫", at_sender=True)
 
-    await do_draw(event, uid, wallet, user_text)
+    await do_draw(event, uid, user_text)
 
 
 @edit_cmd.handle()
@@ -504,17 +449,15 @@ async def handle_edit(
     bot: Bot,
     args: Message = CommandArg(),
     uid: int = Depends(get_uid),
-    wallet: UserWallet = Depends(wallet_manager),
 ):
-    cfg = get_config()
-    if not cfg.get("deepseek_api_key"):
+    if not koinori_config.deepseek_api_key:
         await edit_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
-    if not cfg.get("gpt_image_api_key"):
+    if not koinori_config.gpt_image_api_key:
         await edit_cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
     if is_qqbot(event):
         await edit_cmd.finish("AI修图功能暂不支持QQbot~", at_sender=True)
-    if not cfg.get("enable", True) and get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
+    if not koinori_config.ai_draw_enable and get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
         await edit_cmd.finish("AI修图功能维护中，暂时不可用~", at_sender=True)
 
     user_text = args.extract_plain_text().strip()
-    await do_edit(event, uid, wallet, user_text)
+    await do_edit(event, uid, user_text)

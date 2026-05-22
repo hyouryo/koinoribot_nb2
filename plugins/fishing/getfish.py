@@ -12,10 +12,7 @@ from typing import Dict, Optional
 from nonebot import logger
 from nonebot.adapters import Bot, Event
 from nonebot.matcher import Matcher
-from nonebot.params import Depends
-from ...money import UserWallet
-
-from ... import money
+from ...money import money
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain
 from ...koinori_config import config
 from .util import DatabaseManager
@@ -222,8 +219,8 @@ class FishingManager:
 
     @classmethod
     async def multi_fishing(cls, uid:int, matcher: Matcher, bot: Bot, event: Event,
-                           times: int, cost: int, star_cost: int, command_name: str, 
-                           cooldown_manager, user_wallet: UserWallet):
+                           times: int, cost: int, star_cost: int, command_name: str,
+                           cooldown_manager):
         """
         多连钓鱼核心逻辑
 
@@ -237,12 +234,13 @@ class FishingManager:
             star_cost: 星星消耗
             command_name: 命令名称（用于显示）
             cooldown_manager: 冷却管理器实例
-            user_wallet: 钱包实例
         """
 
         # 检查星星
-        if config.star_price != 0 and user_wallet.starstone < star_cost:
-            await matcher.finish("星星不够用了呢...", at_sender=True)
+        if config.star_price != 0:
+            user_starstone = money.get_user_money(uid, "starstone") or 0
+            if user_starstone < star_cost:
+                await matcher.finish("星星不够用了呢...", at_sender=True)
 
         user_info = await cls.get_user_info(uid)
         actual_cost = cost * config.bait_price
@@ -254,8 +252,9 @@ class FishingManager:
         auto_buy = False
         # 检查鱼饵
         if user_info['fish'].get('🍙', 0) < cost:
-            if user_wallet.gold >= actual_cost:
-                user_wallet.gold -= actual_cost
+            user_gold = money.get_user_money(uid, "gold") or 0
+            if user_gold >= actual_cost:
+                money.reduce_user_money(uid, "gold", actual_cost)
                 auto_buy = True
             else:
                 await matcher.finish("金币或鱼饵不足喔...", at_sender=True)
@@ -268,14 +267,14 @@ class FishingManager:
         if not is_su(uid) and not limit:
             await matcher.send(f'\n今日钓鱼次数已达上限喔...你还能钓鱼{rest_count}次。\n明天再来吧~', at_sender=True)
             if auto_buy:
-                user_wallet.gold += actual_cost
+                money.increase_user_money(uid, "gold", actual_cost)
             return
 
         cooldown_manager.start_cd(uid)
 
         # 扣星星
         if config.star_price != 0:
-            user_wallet.starstone -= star_cost
+            money.reduce_user_money(uid, "starstone", star_cost)
 
         # 消耗鱼饵
         if not auto_buy:
@@ -316,7 +315,7 @@ class FishingManager:
 
         # 活动补贴
         if not have_star and config.extra_gold == 1 and times == 100:
-            user_wallet.gold += 300
+            money.increase_user_money(uid, "gold", 300)
             summary_message += f"+300金币(活动补贴)"
 
         summary_message += f"\n总花费：{actual_cost}金币"
@@ -327,13 +326,13 @@ class FishingManager:
         if actual_cost > 0 and times >= 100:
             ratio = value / actual_cost
             if ratio > 3:
-                user_wallet.luckygold += 3
+                money.increase_user_money(uid, "luckygold", 3)
                 summary_message += "\n幸运币+3"
             elif ratio > 2.5:
-                user_wallet.luckygold += 2
+                money.increase_user_money(uid, "luckygold", 2)
                 summary_message += "\n幸运币+2"
             elif ratio > 2:
-                user_wallet.luckygold += 1
+                money.increase_user_money(uid, "luckygold", 1)
                 summary_message += "\n幸运币+1"
 
         # ===== 构建次数统计消息（放入合并转发） =====
