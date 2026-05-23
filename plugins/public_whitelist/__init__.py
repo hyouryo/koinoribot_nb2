@@ -157,10 +157,8 @@ def get_ws_info() -> dict:
     return {
         "ws_address": ws_address,
         "connection_help": [
-            "请依次对你的bot私聊发送以下每一行内容。(确保你的云崽安装了ws-plugin)",
-            "#ws添加连接",
-            "ko,1",
-            f"{ws_address},5,0",
+            "请新建ws反向连接，连接地址如下：",
+            f"{ws_address}",
         ],
     }
 
