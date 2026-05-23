@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 import sqlite3
 import asyncio
 import random
@@ -16,6 +17,7 @@ from typing import Optional, Dict, List, Any
 # Matplotlib 用于替代 Plotly/Kaleido
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.font_manager as fm
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
@@ -413,16 +415,63 @@ async def get_stock_price_history(stock_name: str, stock_data: dict = None) -> L
     return [(ts, price) for ts, price in history if ts >= cutoff_time]
 
 
+def _resolve_cjk_font() -> fm.FontProperties:
+    """
+    查找可用的中文字体
+    """
+    _known_paths = [
+        # Alpine font-wqy-zenhei
+        '/usr/share/fonts/ttf/wqy/wqy-zenhei.ttc',
+        '/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc',
+        # Debian/Ubuntu fonts-wqy-zenhei
+        '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+        '/usr/share/fonts/opentype/wqy/wqy-zenhei.ttc',
+        # Windows
+        'C:/Windows/Fonts/simhei.ttf',
+        'C:/Windows/Fonts/msyh.ttc',
+        'C:/Windows/Fonts/msyhbd.ttc',
+        # Mac
+        '/System/Library/Fonts/STHeiti Light.ttc',
+        '/System/Library/Fonts/PingFang.ttc',
+        '/Library/Fonts/Arial Unicode.ttf',
+    ]
+
+    for path in _known_paths:
+        if os.path.isfile(path):
+            logger.info(f"[stock_utils] Found CJK font: {path}")
+            fm.fontManager.addfont(path)
+            prop = fm.FontProperties(fname=path)
+            return prop
+
+    # 尝试从 Matplotlib 已注册字体中按名称查找
+    _name_fallbacks = [
+        'WenQuanYi Zen Hei', 'WenQuanYi Micro Hei',
+        'SimHei', 'Microsoft YaHei', 'Arial Unicode MS',
+    ]
+    for name in _name_fallbacks:
+        try:
+            found = fm.findfont(name, fallback_to_default=False)
+            if found and found != fm.findfont('sans-serif', fallback_to_default=False):
+                logger.info(f"[stock_utils] Using registered CJK font: {name}")
+                prop = fm.FontProperties(family=name)
+                return prop
+        except Exception:
+            continue
+
+    logger.warning("[stock_utils] No CJK font found, chart text may show as tofu")
+    return fm.FontProperties()
+
+
 def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict = None) -> Optional[io.BytesIO]:
     """
     使用 Matplotlib 生成股票历史价格图表的 PNG 图片。
     改用 Matplotlib 以避免 Kaleido 在 Windows 上的卡死问题。
-    
+
     Args:
         stock_name: 股票名称
         history: 价格历史列表 [(timestamp, price), ...]
         stock_data: 股票数据字典，用于获取事件信息
-    
+
     Returns:
         包含PNG图片的BytesIO对象，失败返回None
     """
@@ -431,17 +480,21 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
 
     try:
         logger.info(f"[stock_utils] Generating chart for {stock_name} using Matplotlib...")
-        
+
         timestamps, prices = zip(*history)
         dates = [datetime.fromtimestamp(ts) for ts in timestamps]
-        
+
         current_price = history[-1][1]
         initial_price = STOCKS.get(stock_name, 0)
-        
+
         # 计算时间范围
         now = datetime.now()
         start_time = now - timedelta(hours=HISTORY_DURATION_HOURS)
         end_time = now + timedelta(hours=3)
+
+        # 在创建 Figure 之前查找并注册中文字体
+        font_prop = _resolve_cjk_font()
+        plt.rcParams['axes.unicode_minus'] = False
 
         # 创建 Figure 和 Axes 对象 (避免使用 plt.xxx 的全局状态，线程安全)
         fig = Figure(figsize=(10, 6), dpi=100)
@@ -450,10 +503,6 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
 
         # 绘制价格折线
         ax.plot(dates, prices, marker='o', markersize=4, linestyle='-', label='价格')
-
-        # 设置中文字体 (尝试寻找可用中文字体，防止乱码)
-        plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'WenQuanYi Zen Hei', 'SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'sans-serif']
-        plt.rcParams['axes.unicode_minus'] = False
 
         # 标记事件
         if stock_data and stock_name in stock_data and "events" in stock_data[stock_name]:
@@ -470,16 +519,18 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
                         textcoords='offset points',
                         arrowprops=dict(facecolor='black', arrowstyle='->'),
                         ha='center',
-                        fontsize=9
+                        fontsize=9,
+                        fontproperties=font_prop
                     )
 
         # 设置标题和标签
         ax.set_title(
             f'{stock_name} 过去{HISTORY_DURATION_HOURS}小时价格走势\n(初始价格: {initial_price:.2f}金币 最高上涨至初始价格的2倍)',
-            fontsize=12
+            fontsize=12,
+            fontproperties=font_prop
         )
-        ax.set_xlabel('时间')
-        ax.set_ylabel('价格 (金币)')
+        ax.set_xlabel('时间', fontproperties=font_prop)
+        ax.set_ylabel('价格 (金币)', fontproperties=font_prop)
 
         # 设置X轴时间格式
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
@@ -495,7 +546,8 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
             xytext=(30, -30),
             textcoords='offset points',
             arrowprops=dict(facecolor='black', arrowstyle='->'),
-            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", alpha=0.8)
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", alpha=0.8),
+            fontproperties=font_prop
         )
 
         # 渲染到内存
