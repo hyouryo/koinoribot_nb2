@@ -193,14 +193,14 @@ class BuildImage:
                     self.w = int(ratio * w)
                     self.h = int(ratio * h)
                     self.markImg = self.markImg.resize(
-                        (self.w, self.h), Image.ANTIALIAS
+                        (self.w, self.h), Image.LANCZOS
                     )
                 else:
                     self.w = w
                     self.h = h
             else:
                 self.markImg = Image.open(background).resize(
-                    (self.w, self.h), Image.ANTIALIAS
+                    (self.w, self.h), Image.LANCZOS
                 )
         if is_alpha:
             array = self.markImg.load()
@@ -305,8 +305,8 @@ class BuildImage:
         参数：
             :param msg: 文字内容
         """
-        bbox = self.font.getbbox(msg)
-        return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+        ascent, descent = self.font.getmetrics()
+        return (int(self.font.getlength(msg)), ascent + descent)
 
 
     def getsize_multiline(self, msg: str) -> Tuple[int, int]:
@@ -316,8 +316,12 @@ class BuildImage:
         参数：
             :param msg: 文字内容
         """
-        bbox = self.font.getmultilinebbox(msg)
-        return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+        lines = msg.split("\n")
+        ascent, descent = self.font.getmetrics()
+        line_height = ascent + descent
+        spacing = 4
+        max_width = max((int(self.font.getlength(line)) for line in lines), default=0)
+        return (max_width, line_height * len(lines) + spacing * (len(lines) - 1))
 
 
     async def apoint(
@@ -568,7 +572,7 @@ class BuildImage:
         if not w and not h and ratio:
             w = int(self.w * ratio)
             h = int(self.h * ratio)
-        self.markImg = self.markImg.resize((w, h), Image.ANTIALIAS)
+        self.markImg = self.markImg.resize((w, h), Image.LANCZOS)
         self.w, self.h = self.markImg.size
         self.size = self.w, self.h
         self.draw = ImageDraw.Draw(self.markImg)
@@ -765,7 +769,7 @@ class BuildImage:
         size = self.markImg.size
         r2 = min(size[0], size[1])
         if size[0] != size[1]:
-            self.markImg = self.markImg.resize((r2, r2), Image.ANTIALIAS)
+            self.markImg = self.markImg.resize((r2, r2), Image.LANCZOS)
         width = 1
         antialias = 4
         ellipse_box = [0, 0, r2 - 2, r2 - 2]
