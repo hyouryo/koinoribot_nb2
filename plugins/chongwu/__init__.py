@@ -1197,7 +1197,7 @@ async def handle_my_pet_ranking(event: Event, bot: Bot, uid: int = Depends(get_u
         top_tag = " ✨" if is_top else ""
         growth_str = "无法探查" if hide_growth else f"{my_growth:.1f}"
         await pet_my_ranking_cmd.finish(
-            f"\n你的宠物【{pet['name']}】"
+            f"你的宠物【{pet['name']}】"
             f"\n当前排名: 第{my_rank}名（共{total_pets}只成年宠物）"
             f"\n成长值: {growth_str}{top_tag}",
             at_sender=True
