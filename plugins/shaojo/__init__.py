@@ -11,6 +11,7 @@ import re
 
 from ...koinori_config import config as koinori_config
 from ...tools import get_sender_nickname, get_uid
+from ...uid_manager import get_uid as get_unified_uid
 from ..ai_draw import do_draw, ensure_draw_available
 from .choicer import Choicer
 from .data import SHOUJO_CONFIG
@@ -59,8 +60,8 @@ async def _sender_name(event: Event) -> str:
     return await get_sender_nickname(event) or "你"
 
 
-def _extract_at_targets(event: Event) -> list[str]:
-    targets: list[str] = []
+def _extract_at_targets(event: Event) -> list[tuple[int, str, str]]:
+    targets: list[tuple[int, str, str]] = []
 
     try:
         for segment in event.get_message():
@@ -70,7 +71,7 @@ def _extract_at_targets(event: Event) -> list[str]:
             if segment_type == "at":
                 qq = str(data.get("qq", ""))
                 if qq and qq != "all":
-                    targets.append(qq)
+                    targets.append((get_unified_uid("onebot", qq), qq, "onebot"))
             elif segment_type == "mention_user":
                 user_id = str(
                     data.get("user_id")
@@ -79,40 +80,43 @@ def _extract_at_targets(event: Event) -> list[str]:
                     or ""
                 )
                 if user_id:
-                    targets.append(user_id)
+                    targets.append((get_unified_uid("qqbot", user_id), user_id, "qqbot"))
     except Exception as exc:
         logger.debug(f"解析 at 消息段失败: {exc}")
 
     raw_message = str(getattr(event, "raw_message", ""))
     for matched in _cq_at_re.findall(raw_message):
-        targets.append(matched)
+        targets.append((get_unified_uid("onebot", matched), matched, "onebot"))
 
     deduped = []
+    seen_uids = set()
     for target in targets:
-        if target not in deduped:
+        target_uid = target[0]
+        if target_uid not in seen_uids:
             deduped.append(target)
+            seen_uids.add(target_uid)
     return deduped
 
 
-async def _target_name(bot: Bot, event: Event, target_id: str) -> str:
+async def _target_name(bot: Bot, event: Event, target_external_id: str) -> str:
     if isinstance(bot, OneBotBot) and isinstance(event, GroupMessageEvent):
         try:
             info = await bot.get_group_member_info(
                 group_id=event.group_id,
-                user_id=int(target_id),
+                user_id=int(target_external_id),
                 no_cache=True,
             )
-            return info.get("card") or info.get("nickname") or f"用户{target_id}"
+            return info.get("card") or info.get("nickname") or f"用户{target_external_id}"
         except Exception as exc:
             logger.debug(f"获取群成员信息失败: {exc}")
 
-    return f"用户{target_id}"
+    return f"用户{target_external_id}"
 
 
-def _format_profile(user_id: int | str, name: str, *, with_reminder: bool = False) -> str:
-    profile = _choicer.format_msg(user_id, name)
+def _format_profile(uid: int, name: str, *, with_reminder: bool = False) -> str:
+    profile = _choicer.format_msg(uid, name)
     if with_reminder:
-        return f"{profile}\n{IMAGE_REMINDER}"
+        return f"{profile}\n\n{IMAGE_REMINDER}"
     return profile
 
 
@@ -126,10 +130,12 @@ def _build_image_prompt(profile: str) -> str:
 
 
 @my_shaojo_cmd.handle()
-async def handle_my_shaojo(event: Event) -> None:
-    user_id = event.get_user_id()
+async def handle_my_shaojo(
+    event: Event,
+    uid: int = Depends(get_uid),
+) -> None:
     name = await _sender_name(event)
-    await my_shaojo_cmd.finish(_format_profile(user_id, name, with_reminder=True))
+    await my_shaojo_cmd.finish(_format_profile(uid, name, with_reminder=True))
 
 
 @my_shaojo_image_cmd.handle()
@@ -139,9 +145,8 @@ async def handle_my_shaojo_image(
 ) -> None:
     await ensure_draw_available(event, uid, my_shaojo_image_cmd)
 
-    user_id = event.get_user_id()
     name = await _sender_name(event)
-    profile = _format_profile(user_id, name)
+    profile = _format_profile(uid, name)
     prompt = _build_image_prompt(profile)
     await do_draw(
         event,
@@ -149,6 +154,7 @@ async def handle_my_shaojo_image(
         prompt,
         cmd=my_shaojo_image_cmd,
         progress_text=f"今日人设图生成中…\n已扣除{koinori_config.draw_cost}金币",
+        success_text=f"少女人设：\n{profile}",
     )
 
 
@@ -158,12 +164,12 @@ async def handle_other_shaojo(bot: Bot, event: Event) -> None:
     if not targets:
         await other_shaojo_cmd.finish("要艾特到对方才知道是什么少女喔~", at_sender=True)
 
-    for target_id in targets:
-        if target_id == str(bot.self_id):
+    for target_uid, target_external_id, _platform in targets:
+        if target_external_id == str(bot.self_id):
             msg = BOT_SHOUJO
         else:
-            name = await _target_name(bot, event, target_id)
-            msg = _choicer.format_msg(target_id, name)
+            name = await _target_name(bot, event, target_external_id)
+            msg = _format_profile(target_uid, name)
 
         try:
             await bot.send(event, msg)

@@ -14,7 +14,7 @@ import time
 import aiohttp
 from nonebot import on_command, get_driver
 from nonebot.adapters import Event, Bot
-from nonebot.adapters.onebot.v11 import Message
+from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 from nonebot.log import logger
 from nonebot.params import CommandArg, Depends
@@ -33,6 +33,7 @@ __plugin_meta__ = PluginMetadata(
     usage=(
         "冰祈画图 <描述>    生成图像\n"
         "冰祈修图 <描述> + 图片  编辑图像\n"
+        "全局重置画图次数 / 重置画图次数 <uid>  管理日限\n"
         "费用：100000金币/次，每日限5次"
     ),
 )
@@ -52,6 +53,8 @@ draw_cmd = on_command(
 edit_cmd = on_command(
     "冰祈修图", aliases={"梦灵修图"}, priority=5, block=True
 )
+reset_all_usage_cmd = on_command("全局重置画图次数", priority=5, block=True)
+reset_usage_cmd = on_command("重置画图次数", priority=5, block=True)
 
 # DeepSeek 系统提示词
 PROMPT_TRANSLATE_SYSTEM = """You are a professional image prompt engineer. Your task is to convert the user's Chinese description into a concise, high-quality English prompt suitable for AI image generation (DALL-E / GPT-Image-2).
@@ -86,8 +89,8 @@ def _today() -> str:
     return time.strftime("%Y-%m-%d", time.localtime())
 
 
-async def check_and_increment_daily_limit(uid: int) -> bool:
-    """检查日限并递增。跨天自动清零。返回 True 表示未超限（已递增），False 表示超限。"""
+async def check_daily_limit(uid: int) -> bool:
+    """检查日限。跨天视为已清零。返回 True 表示未超限。"""
     loop = __import__("asyncio").get_event_loop()
     today = _today()
 
@@ -98,30 +101,62 @@ async def check_and_increment_daily_limit(uid: int) -> bool:
             ).fetchone()
 
             if row is None:
+                return True
+
+            if row["date"] != today:
+                return True
+
+            return row["count"] < koinori_config.daily_limit
+
+    return await loop.run_in_executor(None, _do)
+
+
+async def record_draw_success(uid: int) -> None:
+    """成功生成图片后递增今日次数。level 0 SU 不计入日限。"""
+    if get_su_level(uid) == SU_LEVEL_CONTRIBUTOR:
+        return
+
+    loop = __import__("asyncio").get_event_loop()
+    today = _today()
+
+    def _do():
+        with _get_db() as conn:
+            row = conn.execute(
+                "SELECT date FROM ai_draw_usage WHERE uid=?", (uid,)
+            ).fetchone()
+
+            if row is None:
                 conn.execute(
                     "INSERT INTO ai_draw_usage (uid, date, count) VALUES (?, ?, 1)",
                     (uid, today),
                 )
-                conn.commit()
-                return True
-
-            if row["date"] != today:
+            elif row["date"] != today:
                 conn.execute(
                     "UPDATE ai_draw_usage SET date=?, count=1 WHERE uid=?",
                     (today, uid),
                 )
-                conn.commit()
-                return True
-
-            if row["count"] >= koinori_config.daily_limit:
-                return False
-
-            conn.execute(
-                "UPDATE ai_draw_usage SET count=count+1 WHERE uid=? AND date=?",
-                (uid, today),
-            )
+            else:
+                conn.execute(
+                    "UPDATE ai_draw_usage SET count=count+1 WHERE uid=? AND date=?",
+                    (uid, today),
+                )
             conn.commit()
-            return True
+
+    await loop.run_in_executor(None, _do)
+
+
+async def reset_draw_usage(target_uid: int | None = None) -> int:
+    """重置画图次数。target_uid 为 None 时重置全部。返回影响行数。"""
+    loop = __import__("asyncio").get_event_loop()
+
+    def _do():
+        with _get_db() as conn:
+            if target_uid is None:
+                cursor = conn.execute("DELETE FROM ai_draw_usage")
+            else:
+                cursor = conn.execute("DELETE FROM ai_draw_usage WHERE uid=?", (target_uid,))
+            conn.commit()
+            return cursor.rowcount
 
     return await loop.run_in_executor(None, _do)
 
@@ -321,11 +356,11 @@ async def generate_image_edit(
 
 # ═══════════════ 费用 & 日限检查 ═══════════════
 
-async def check_quota_and_pay(uid: int, cmd) -> bool:
-    """检查日限和余额，任意不满足则发送提示并返回 False；通过则扣款+递增日限并返回 True"""
+async def check_quota_and_balance(uid: int, cmd) -> bool:
+    """检查日限和余额，任意不满足则发送提示并返回 False。"""
     # level 0 SU 不受日限
     if get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
-        ok = await check_and_increment_daily_limit(uid)
+        ok = await check_daily_limit(uid)
         if not ok:
             await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~", at_sender=True)
             return False
@@ -338,11 +373,23 @@ async def check_quota_and_pay(uid: int, cmd) -> bool:
         )
         return False
 
-    money.reduce_user_money(uid, "gold", koinori_config.draw_cost)
     return True
 
 
+def pay_draw_cost(uid: int) -> bool:
+    return bool(money.reduce_user_money(uid, "gold", koinori_config.draw_cost))
+
+
 # ═══════════════ 画图处理 ═══════════════
+
+def _build_text_image_message(text: str, image_msg) -> Message:
+    """构建文本和图片合并的一条 OneBot 消息。"""
+    msg = Message()
+    if text.strip():
+        msg.append(MessageSegment.text(f"{text.rstrip()}\n"))
+    msg.append(image_msg)
+    return msg
+
 
 async def ensure_draw_available(event: Event, uid: int, cmd) -> None:
     """检查文本生图功能是否可用。"""
@@ -354,18 +401,28 @@ async def ensure_draw_available(event: Event, uid: int, cmd) -> None:
         await cmd.finish("AI画图功能维护中，暂时不可用~", at_sender=True)
 
 
-async def do_draw(event: Event, uid: int, user_text: str, cmd=None, progress_text: str | None = None) -> None:
+async def do_draw(
+    event: Event,
+    uid: int,
+    user_text: str,
+    cmd=None,
+    progress_text: str | None = None,
+    success_text: str | None = None,
+) -> None:
     """执行文本生图"""
     if cmd is None:
         cmd = draw_cmd
 
-    if not await check_quota_and_pay(uid, cmd):
+    if not await check_quota_and_balance(uid, cmd):
         return
 
     if not draw_limiter.check(uid):
         left = round(draw_limiter.left_time(uid))
         await cmd.finish(f"画图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
     draw_limiter.start_cd(uid)
+
+    if not pay_draw_cost(uid):
+        await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
 
     await cmd.send(progress_text or f"少女画图中…\n已扣除{koinori_config.draw_cost}金币")
 
@@ -383,8 +440,13 @@ async def do_draw(event: Event, uid: int, user_text: str, cmd=None, progress_tex
         logger.error(f"画图异常: {type(e).__name__}: {e}")
         await cmd.finish(f"画图出错了: {e}\n已退还金币。", at_sender=True)
     else:
+        await record_draw_success(uid)
         try:
-            await cmd.send(image_msg, at_sender=True)
+            result_msg = _build_text_image_message(
+                success_text or f"提示词：\n{user_text}",
+                image_msg,
+            )
+            await cmd.send(result_msg, at_sender=True)
         except ActionFailed:
             logger.warning("发送图片超时，但图片可能已送达")
         await cmd.finish()
@@ -409,7 +471,7 @@ async def do_edit(event: Event, uid: int, user_text: str) -> None:
         await edit_cmd.finish("请输入修图描述，例如: 冰祈修图[附带图片] 把猫变成金色的", at_sender=True)
         return
 
-    if not await check_quota_and_pay(uid, edit_cmd):
+    if not await check_quota_and_balance(uid, edit_cmd):
         return
 
     if not draw_limiter.check(uid):
@@ -418,6 +480,9 @@ async def do_edit(event: Event, uid: int, user_text: str) -> None:
     draw_limiter.start_cd(uid)
 
     prompt = user_text.strip()
+    if not pay_draw_cost(uid):
+        await edit_cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
+
     user_gold_after = money.get_user_money(uid, "gold") or 0
     await edit_cmd.send(f"少女修图中…\n已扣除 {koinori_config.draw_cost} 金币 (剩余 {user_gold_after})")
 
@@ -435,14 +500,56 @@ async def do_edit(event: Event, uid: int, user_text: str) -> None:
         logger.error(f"修图异常: {type(e).__name__}: {e}")
         await edit_cmd.finish(f"修图出错了: {e}\n已退还金币。", at_sender=True)
     else:
+        await record_draw_success(uid)
         try:
-            await edit_cmd.send(image_msg, at_sender=True)
+            result_msg = _build_text_image_message(
+                f"提示词：\n{prompt}",
+                image_msg,
+            )
+            await edit_cmd.send(result_msg, at_sender=True)
         except ActionFailed:
             logger.warning("修图发送图片超时，但图片可能已送达")
         await edit_cmd.finish()
 
 
 # ═══════════════ 命令入口 ═══════════════
+
+
+def _is_level0_su(uid: int) -> bool:
+    return get_su_level(uid) == SU_LEVEL_CONTRIBUTOR
+
+
+@reset_all_usage_cmd.handle()
+async def handle_reset_all_usage(uid: int = Depends(get_uid)):
+    if not _is_level0_su(uid):
+        await reset_all_usage_cmd.finish("权限不足，仅限权限等级为 0 的 SU 使用。", at_sender=True)
+
+    affected = await reset_draw_usage()
+    await reset_all_usage_cmd.finish(f"已重置全部用户今日画图次数（清理 {affected} 条记录）。", at_sender=True)
+
+
+@reset_usage_cmd.handle()
+async def handle_reset_usage(
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid),
+):
+    if not _is_level0_su(uid):
+        await reset_usage_cmd.finish("权限不足，仅限权限等级为 0 的 SU 使用。", at_sender=True)
+
+    arg_text = args.extract_plain_text().strip()
+    if not arg_text:
+        await reset_usage_cmd.finish("格式：重置画图次数 uid", at_sender=True)
+
+    try:
+        target_uid = int(arg_text.split()[0])
+    except ValueError:
+        await reset_usage_cmd.finish("UID 必须是整数。", at_sender=True)
+
+    affected = await reset_draw_usage(target_uid)
+    if affected:
+        await reset_usage_cmd.finish(f"已重置 UID:{target_uid} 今日画图次数。", at_sender=True)
+    await reset_usage_cmd.finish(f"UID:{target_uid} 今日画图次数已经是 0。", at_sender=True)
+
 
 @draw_cmd.handle()
 async def handle_draw(
