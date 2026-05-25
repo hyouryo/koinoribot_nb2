@@ -474,7 +474,7 @@ async def handle_bind_choice(
         rebind_external_id(source_uid, current_platform, current_external_id)
         delete_uid_mapping(current_uid)
         await bind_cmd.finish(
-            f"绑定成功！保留老账号 uid={source_uid}，新账号 uid={current_uid} 已删除。",
+            f"绑定成功！\n保留 uid={source_uid}\nuid={current_uid} 已删除。",
             at_sender=True
         )
     elif choice == "2":
@@ -487,7 +487,7 @@ async def handle_bind_choice(
             rebind_external_id(current_uid, source_other_platform, source_other_id)
         delete_uid_mapping(source_uid)
         await bind_cmd.finish(
-            f"绑定成功！保留 uid={current_uid}， uid={source_uid} 已删除。",
+            f"绑定成功！\n保留 uid={current_uid}\nuid={source_uid} 已删除。",
             at_sender=True
         )
     else:
