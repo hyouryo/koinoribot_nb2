@@ -25,6 +25,7 @@ from ...su_manager import get_su_level, SU_LEVEL_CONTRIBUTOR
 from ...tools import get_uid, build_image_msg, is_onebot, is_qqbot
 from ...koinori_config import config as koinori_config
 from ...utils import FreqLimiter
+from ._image_meta import detect_image_upload_meta
 
 __plugin_meta__ = PluginMetadata(
     name="ai_draw",
@@ -285,7 +286,17 @@ async def generate_image_edit(
     form_data.add_field("model", koinori_config.gpt_image_model)
     form_data.add_field("prompt", prompt)
     form_data.add_field("size", size)
-    form_data.add_field("image", image_bytes, filename="reference.png", content_type="image/png")
+    image_filename, image_content_type = detect_image_upload_meta(image_bytes)
+    form_data.add_field(
+        "image",
+        image_bytes,
+        filename=image_filename,
+        content_type=image_content_type,
+    )
+    logger.debug(
+        "GPT-Image-2 Edit reference image: "
+        f"filename={image_filename}, content_type={image_content_type}, bytes={len(image_bytes)}"
+    )
 
     headers = {
         "Authorization": f"Bearer {api_key}",
