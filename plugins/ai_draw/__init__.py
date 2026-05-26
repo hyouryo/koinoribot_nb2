@@ -408,6 +408,7 @@ async def do_draw(
     cmd=None,
     progress_text: str | None = None,
     success_text: str | None = None,
+    log_prompt_label: str | None = None,
 ) -> None:
     """执行文本生图"""
     if cmd is None:
@@ -423,6 +424,9 @@ async def do_draw(
 
     if not pay_draw_cost(uid):
         await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
+
+    if log_prompt_label:
+        logger.info(f"{log_prompt_label}: {user_text}")
 
     await cmd.send(progress_text or f"少女画图中…\n已扣除{koinori_config.draw_cost}金币")
 

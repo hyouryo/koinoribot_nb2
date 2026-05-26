@@ -164,6 +164,7 @@ async def handle_my_shaojo_image(
         cmd=my_shaojo_image_cmd,
         progress_text=f"今日人设图生成中…\n已扣除{koinori_config.draw_cost}金币",
         success_text=f"人设：\n{display_profile}",
+        log_prompt_label="[shaojo] 人设画图完整提示词",
     )
 
 
