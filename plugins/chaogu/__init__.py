@@ -957,9 +957,9 @@ async def handle_gamble_record(event: Event, bot: Bot, uid: int = Depends(get_ui
 PRIZE_CONFIG = {
     '杂鱼': {'weight': 30, 'multiplier': 0.1, 'fish_add': 0.1, 'special_chance': 0.75, 'special_prizes': ["钱包金币-1%"]},
     '普通': {'weight': 50, 'multiplier': 1, 'fish_add': 1, 'special_chance': 0.0, 'special_prizes': []},
-    '稀有': {'weight': 15, 'multiplier': 5, 'fish_add': 3, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水"]},
-    '史诗': {'weight': 4, 'multiplier': 20, 'fish_add': 5, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水", "免费画图次数+1"]},
-    '传说': {'weight': 1, 'multiplier': 100, 'fish_add': 10, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍", "免费画图次数+2"]},
+    '稀有': {'weight': 15, 'multiplier': 5, 'fish_add': 3, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水", "免费画图次数+1"]},
+    '史诗': {'weight': 4, 'multiplier': 20, 'fish_add': 5, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水", "免费画图次数+2"]},
+    '传说': {'weight': 1, 'multiplier': 100, 'fish_add': 10, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍", "免费画图次数+3"]},
 }
 
 TIERS = list(PRIZE_CONFIG.keys())
@@ -972,10 +972,52 @@ PRIZES = {
     "luckygold": {"amount": 0.05, "chinese": "幸运币"},
 }
 
+FREE_DRAW_SPECIAL_PRIZES = {
+    "免费画图次数+1": 1,
+    "免费画图次数+2": 2,
+    "免费画图次数+3": 3,
+}
+
 
 def draw_prize() -> str:
     """根据权重随机抽取一个奖品档位"""
     return random.choices(TIERS, weights=WEIGHTS, k=1)[0]
+
+
+async def _give_wallet_gold_double(uid: int, special_prize: str) -> str:
+    user_gold = money.get_user_money(uid, 'gold') or 0
+    money.increase_user_money(uid, 'gold', user_gold)
+    return special_prize
+
+
+async def _give_wallet_gold_deduct(uid: int, special_prize: str) -> str:
+    user_gold = money.get_user_money(uid, 'gold') or 0
+    deduct = max(1, int(user_gold * 0.01))
+    money.reduce_user_money(uid, 'gold', deduct)
+    return special_prize
+
+
+async def _give_free_draw_prize(uid: int, special_prize: str) -> str:
+    amount = FREE_DRAW_SPECIAL_PRIZES[special_prize]
+    await add_free_draw_count(uid, amount)
+    return f"免费画图次数 *{amount}"
+
+
+async def _give_item_prize(uid: int, special_prize: str) -> str:
+    await add_user_item(uid, special_prize)
+    return special_prize
+
+
+SPECIAL_PRIZE_HANDLERS = {
+    "钱包金币翻倍": _give_wallet_gold_double,
+    "钱包金币-1%": _give_wallet_gold_deduct,
+    **{prize: _give_free_draw_prize for prize in FREE_DRAW_SPECIAL_PRIZES},
+}
+
+
+async def give_special_prize(uid: int, special_prize: str) -> str:
+    handler = SPECIAL_PRIZE_HANDLERS.get(special_prize, _give_item_prize)
+    return await handler(uid, special_prize)
 
 
 async def give_prize(uid: int, prize_tier: str) -> str:
@@ -985,24 +1027,7 @@ async def give_prize(uid: int, prize_tier: str) -> str:
     # 决定是发放特殊奖品还是普通奖品
     if random.random() < prize_config['special_chance'] and prize_config['special_prizes']:
         special_prize = random.choice(prize_config['special_prizes'])
-        if special_prize == "钱包金币翻倍":
-            user_gold = money.get_user_money(uid, 'gold') or 0
-            money.increase_user_money(uid, 'gold', user_gold)
-            return special_prize
-        if special_prize == "钱包金币-1%":
-            user_gold = money.get_user_money(uid, 'gold') or 0
-            deduct = max(1, int(user_gold * 0.01))
-            money.reduce_user_money(uid, 'gold', deduct)
-            return special_prize
-        if special_prize == "免费画图次数+1":
-            await add_free_draw_count(uid, 1)
-            return "免费画图次数 *1"
-        if special_prize == "免费画图次数+2":
-            await add_free_draw_count(uid, 2)
-            return "免费画图次数 *2"
-        else:
-            await add_user_item(uid, special_prize)
-            return special_prize
+        return await give_special_prize(uid, special_prize)
     else:
         # 发放普通资源奖品
         prize_name = random.choice(list(PRIZES.keys()))
