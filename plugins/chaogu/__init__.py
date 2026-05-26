@@ -955,9 +955,9 @@ async def handle_gamble_record(event: Event, bot: Bot, uid: int = Depends(get_ui
 
 # 奖品概率配置
 PRIZE_CONFIG = {
-    '杂鱼': {'weight': 30, 'multiplier': 0.1, 'fish_add': 0.1, 'special_chance': 0.75, 'special_prizes': ["钱包金币-1%"]},
-    '普通': {'weight': 50, 'multiplier': 1, 'fish_add': 1, 'special_chance': 0.0, 'special_prizes': []},
-    '稀有': {'weight': 15, 'multiplier': 5, 'fish_add': 3, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水", "免费画图次数+1"]},
+    '杂鱼': {'weight': 10, 'multiplier': 0.1, 'fish_add': 0.1, 'special_chance': 0.75, 'special_prizes': ["钱包金币-1%"]},
+    '普通': {'weight': 10, 'multiplier': 1, 'fish_add': 1, 'special_chance': 0.0, 'special_prizes': []},
+    '稀有': {'weight': 75, 'multiplier': 5, 'fish_add': 3, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水", "免费画图次数+1"]},
     '史诗': {'weight': 4, 'multiplier': 20, 'fish_add': 5, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水", "免费画图次数+2"]},
     '传说': {'weight': 1, 'multiplier': 100, 'fish_add': 10, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍", "免费画图次数+3"]},
 }
