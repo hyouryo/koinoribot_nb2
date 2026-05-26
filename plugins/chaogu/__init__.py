@@ -27,6 +27,7 @@ from ...koinori_config import config
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain, get_at_uid, build_image_msg
 from ..fishing.util import DatabaseManager as FishingDB
 from ...nickname import get_user_nickname
+from ..ai_draw import add_free_draw_count
 
 from .stock_utils import (
     set_db_path, init_stock_database,
@@ -957,8 +958,8 @@ PRIZE_CONFIG = {
     '杂鱼': {'weight': 30, 'multiplier': 0.1, 'fish_add': 0.1, 'special_chance': 0.75, 'special_prizes': ["钱包金币-1%"]},
     '普通': {'weight': 50, 'multiplier': 1, 'fish_add': 1, 'special_chance': 0.0, 'special_prizes': []},
     '稀有': {'weight': 15, 'multiplier': 5, 'fish_add': 3, 'special_chance': 0.5, 'special_prizes': ["高级料理", "玩具球", "能量饮料", "普通扭蛋", "遗忘药水"]},
-    '史诗': {'weight': 4, 'multiplier': 20, 'fish_add': 5, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水"]},
-    '传说': {'weight': 1, 'multiplier': 100, 'fish_add': 10, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍"]},
+    '史诗': {'weight': 4, 'multiplier': 20, 'fish_add': 5, 'special_chance': 0.5, 'special_prizes': ["豪华料理", "高级扭蛋", "时之泪", "最初的契约", "技能药水", "免费画图次数+1"]},
+    '传说': {'weight': 1, 'multiplier': 100, 'fish_add': 10, 'special_chance': 0.5, 'special_prizes': ["奶油蛋糕", "豪华蛋糕", "传说扭蛋", "誓约戒指", "钱包金币翻倍", "免费画图次数+2"]},
 }
 
 TIERS = list(PRIZE_CONFIG.keys())
@@ -968,7 +969,7 @@ WEIGHTS = [details['weight'] for details in PRIZE_CONFIG.values()]
 PRIZES = {
     "gold": {"amount": 100, "chinese": "金币"},
     "starstone": {"amount": 100, "chinese": "星星"},
-    "luckygold": {"amount": 0.25, "chinese": "幸运币"},
+    "luckygold": {"amount": 0.05, "chinese": "幸运币"},
 }
 
 
@@ -993,6 +994,12 @@ async def give_prize(uid: int, prize_tier: str) -> str:
             deduct = max(1, int(user_gold * 0.01))
             money.reduce_user_money(uid, 'gold', deduct)
             return special_prize
+        if special_prize == "免费画图次数+1":
+            await add_free_draw_count(uid, 1)
+            return "免费画图次数 *1"
+        if special_prize == "免费画图次数+2":
+            await add_free_draw_count(uid, 2)
+            return "免费画图次数 *2"
         else:
             await add_user_item(uid, special_prize)
             return special_prize

@@ -12,6 +12,7 @@ import base64
 import sqlite3
 import time
 import aiohttp
+from dataclasses import dataclass
 from nonebot import on_command, get_driver
 from nonebot.adapters import Event, Bot
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
@@ -33,8 +34,7 @@ __plugin_meta__ = PluginMetadata(
     usage=(
         "冰祈画图 <描述>    生成图像\n"
         "冰祈修图 <描述> + 图片  编辑图像\n"
-        "全局重置画图次数 / 重置画图次数 <uid>  管理日限\n"
-        "费用：100000金币/次，每日限5次"
+        "全局重置画图次数 / 重置画图次数 <uid>  管理日限"
     ),
 )
 
@@ -67,21 +67,35 @@ Rules:
 
 # ═══════════════ SQLite 日限 ═══════════════
 
+@dataclass(frozen=True)
+class DrawPayment:
+    success: bool
+    used_free_draw: bool = False
+
+    def __bool__(self) -> bool:
+        return self.success
+
+
 def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(get_database_path())
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def init_db() -> None:
-    with _get_db() as conn:
-        conn.execute(
-            """CREATE TABLE IF NOT EXISTS ai_draw_usage (
+def _ensure_ai_draw_usage_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS ai_draw_usage (
                 uid INTEGER PRIMARY KEY,
                 date TEXT NOT NULL DEFAULT '',
-                count INTEGER NOT NULL DEFAULT 0
+                count INTEGER NOT NULL DEFAULT 0,
+                free_draw_count INTEGER NOT NULL DEFAULT 0
             )"""
-        )
+    )
+
+
+def init_db() -> None:
+    with _get_db() as conn:
+        _ensure_ai_draw_usage_schema(conn)
         conn.commit()
 
 
@@ -96,6 +110,7 @@ async def check_daily_limit(uid: int) -> bool:
 
     def _do():
         with _get_db() as conn:
+            _ensure_ai_draw_usage_schema(conn)
             row = conn.execute(
                 "SELECT date, count FROM ai_draw_usage WHERE uid=?", (uid,)
             ).fetchone()
@@ -111,6 +126,50 @@ async def check_daily_limit(uid: int) -> bool:
     return await loop.run_in_executor(None, _do)
 
 
+def _get_free_draw_count_sync(uid: int) -> int:
+    with _get_db() as conn:
+        _ensure_ai_draw_usage_schema(conn)
+        row = conn.execute(
+            "SELECT free_draw_count FROM ai_draw_usage WHERE uid=?", (uid,)
+        ).fetchone()
+        return 0 if row is None else int(row["free_draw_count"] or 0)
+
+
+def _add_free_draw_count_sync(uid: int, amount: int) -> int:
+    amount = max(0, int(amount))
+    if amount == 0:
+        return _get_free_draw_count_sync(uid)
+
+    with _get_db() as conn:
+        _ensure_ai_draw_usage_schema(conn)
+        row = conn.execute("SELECT uid FROM ai_draw_usage WHERE uid=?", (uid,)).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO ai_draw_usage (uid, free_draw_count) VALUES (?, ?)",
+                (uid, amount),
+            )
+        else:
+            conn.execute(
+                "UPDATE ai_draw_usage SET free_draw_count=free_draw_count+? WHERE uid=?",
+                (amount, uid),
+            )
+        conn.commit()
+
+    return _get_free_draw_count_sync(uid)
+
+
+async def get_free_draw_count(uid: int) -> int:
+    """获取用户剩余的免费画图次数。"""
+    loop = __import__("asyncio").get_event_loop()
+    return await loop.run_in_executor(None, _get_free_draw_count_sync, uid)
+
+
+async def add_free_draw_count(uid: int, amount: int) -> int:
+    """增加长期有效的免费画图次数，返回增加后的剩余次数。"""
+    loop = __import__("asyncio").get_event_loop()
+    return await loop.run_in_executor(None, _add_free_draw_count_sync, uid, amount)
+
+
 async def record_draw_success(uid: int) -> None:
     """成功生成图片后递增今日次数。level 0 SU 不计入日限。"""
     if get_su_level(uid) == SU_LEVEL_CONTRIBUTOR:
@@ -121,6 +180,7 @@ async def record_draw_success(uid: int) -> None:
 
     def _do():
         with _get_db() as conn:
+            _ensure_ai_draw_usage_schema(conn)
             row = conn.execute(
                 "SELECT date FROM ai_draw_usage WHERE uid=?", (uid,)
             ).fetchone()
@@ -151,10 +211,16 @@ async def reset_draw_usage(target_uid: int | None = None) -> int:
 
     def _do():
         with _get_db() as conn:
+            _ensure_ai_draw_usage_schema(conn)
             if target_uid is None:
-                cursor = conn.execute("DELETE FROM ai_draw_usage")
+                cursor = conn.execute(
+                    "UPDATE ai_draw_usage SET date='', count=0 WHERE date<>'' OR count<>0"
+                )
             else:
-                cursor = conn.execute("DELETE FROM ai_draw_usage WHERE uid=?", (target_uid,))
+                cursor = conn.execute(
+                    "UPDATE ai_draw_usage SET date='', count=0 WHERE uid=? AND (date<>'' OR count<>0)",
+                    (target_uid,),
+                )
             conn.commit()
             return cursor.rowcount
 
@@ -356,7 +422,7 @@ async def generate_image_edit(
 
 # ═══════════════ 费用 & 日限检查 ═══════════════
 
-async def check_quota_and_balance(uid: int, cmd) -> bool:
+async def check_quota_and_balance(uid: int, cmd, allow_free_draw: bool = True) -> bool:
     """检查日限和余额，任意不满足则发送提示并返回 False。"""
     # level 0 SU 不受日限
     if get_su_level(uid) != SU_LEVEL_CONTRIBUTOR:
@@ -364,6 +430,9 @@ async def check_quota_and_balance(uid: int, cmd) -> bool:
         if not ok:
             await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~", at_sender=True)
             return False
+
+    if allow_free_draw and await get_free_draw_count(uid) > 0:
+        return True
 
     user_gold = money.get_user_money(uid, "gold") or 0
     if user_gold < koinori_config.draw_cost:
@@ -376,8 +445,48 @@ async def check_quota_and_balance(uid: int, cmd) -> bool:
     return True
 
 
-def pay_draw_cost(uid: int) -> bool:
-    return bool(money.reduce_user_money(uid, "gold", koinori_config.draw_cost))
+def pay_draw_cost(uid: int, allow_free_draw: bool = True) -> DrawPayment:
+    if allow_free_draw:
+        with _get_db() as conn:
+            _ensure_ai_draw_usage_schema(conn)
+            cursor = conn.execute(
+                """
+                UPDATE ai_draw_usage
+                SET free_draw_count=free_draw_count-1
+                WHERE uid=? AND free_draw_count>0
+                """,
+                (uid,),
+            )
+            conn.commit()
+            if cursor.rowcount:
+                return DrawPayment(success=True, used_free_draw=True)
+
+    return DrawPayment(
+        success=bool(money.reduce_user_money(uid, "gold", koinori_config.draw_cost))
+    )
+
+
+def refund_draw_payment(uid: int, payment: DrawPayment) -> str:
+    if payment.used_free_draw:
+        _add_free_draw_count_sync(uid, 1)
+        return "已返还免费画图次数。"
+
+    money.increase_user_money(uid, "gold", koinori_config.draw_cost)
+    return "已退还金币。"
+
+
+def format_draw_progress(
+    uid: int,
+    default_text: str,
+    payment: DrawPayment,
+    progress_text: str | None = None,
+) -> str:
+    if not payment.used_free_draw:
+        return progress_text or default_text
+
+    title = (progress_text or default_text).splitlines()[0]
+    remaining = _get_free_draw_count_sync(uid)
+    return f"{title}\n已使用 1 次免费画图次数（剩余 {remaining} 次）"
 
 
 # ═══════════════ 画图处理 ═══════════════
@@ -421,10 +530,18 @@ async def do_draw(
         await cmd.finish(f"画图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
     draw_limiter.start_cd(uid)
 
-    if not pay_draw_cost(uid):
+    payment = pay_draw_cost(uid)
+    if not payment:
         await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
 
-    await cmd.send(progress_text or f"少女画图中…\n已扣除{koinori_config.draw_cost}金币")
+    await cmd.send(
+        format_draw_progress(
+            uid,
+            f"少女画图中…\n已扣除{koinori_config.draw_cost}金币",
+            payment,
+            progress_text,
+        )
+    )
 
     try:
         image_bytes = await generate_image(
@@ -432,13 +549,13 @@ async def do_draw(
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
-        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
+        refund_text = refund_draw_payment(uid, payment)
         logger.error(f"画图失败: {e}")
-        await cmd.finish(f"画图失败: {e}\n已退还金币。", at_sender=True)
+        await cmd.finish(f"画图失败: {e}\n{refund_text}", at_sender=True)
     except Exception as e:
-        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
+        refund_text = refund_draw_payment(uid, payment)
         logger.error(f"画图异常: {type(e).__name__}: {e}")
-        await cmd.finish(f"画图出错了: {e}\n已退还金币。", at_sender=True)
+        await cmd.finish(f"画图出错了: {e}\n{refund_text}", at_sender=True)
     else:
         await record_draw_success(uid)
         try:
@@ -471,7 +588,7 @@ async def do_edit(event: Event, uid: int, user_text: str) -> None:
         await edit_cmd.finish("请输入修图描述，例如: 冰祈修图[附带图片] 把猫变成金色的", at_sender=True)
         return
 
-    if not await check_quota_and_balance(uid, edit_cmd):
+    if not await check_quota_and_balance(uid, edit_cmd, allow_free_draw=False):
         return
 
     if not draw_limiter.check(uid):
@@ -480,7 +597,8 @@ async def do_edit(event: Event, uid: int, user_text: str) -> None:
     draw_limiter.start_cd(uid)
 
     prompt = user_text.strip()
-    if not pay_draw_cost(uid):
+    payment = pay_draw_cost(uid, allow_free_draw=False)
+    if not payment:
         await edit_cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
 
     user_gold_after = money.get_user_money(uid, "gold") or 0
@@ -492,13 +610,13 @@ async def do_edit(event: Event, uid: int, user_text: str) -> None:
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
-        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
+        refund_text = refund_draw_payment(uid, payment)
         logger.error(f"修图失败: {e}")
-        await edit_cmd.finish(f"修图失败: {e}\n已退还金币。", at_sender=True)
+        await edit_cmd.finish(f"修图失败: {e}\n{refund_text}", at_sender=True)
     except Exception as e:
-        money.increase_user_money(uid, "gold", koinori_config.draw_cost)
+        refund_text = refund_draw_payment(uid, payment)
         logger.error(f"修图异常: {type(e).__name__}: {e}")
-        await edit_cmd.finish(f"修图出错了: {e}\n已退还金币。", at_sender=True)
+        await edit_cmd.finish(f"修图出错了: {e}\n{refund_text}", at_sender=True)
     else:
         await record_draw_success(uid)
         try:
@@ -525,7 +643,7 @@ async def handle_reset_all_usage(uid: int = Depends(get_uid)):
         await reset_all_usage_cmd.finish("权限不足，仅限权限等级为 0 的 SU 使用。", at_sender=True)
 
     affected = await reset_draw_usage()
-    await reset_all_usage_cmd.finish(f"已重置全部用户今日画图次数（清理 {affected} 条记录）。", at_sender=True)
+    await reset_all_usage_cmd.finish(f"已重置全部用户今日画图次数（更新 {affected} 条记录）。", at_sender=True)
 
 
 @reset_usage_cmd.handle()

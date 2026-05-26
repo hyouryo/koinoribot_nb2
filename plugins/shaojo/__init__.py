@@ -12,7 +12,7 @@ import re
 from ...koinori_config import config as koinori_config
 from ...tools import get_sender_nickname, get_uid
 from ...uid_manager import get_uid as get_unified_uid
-from ..ai_draw import do_draw, ensure_draw_available
+from ..ai_draw import do_draw, ensure_draw_available, get_free_draw_count
 from .choicer import Choicer
 from .data import SHOUJO_CONFIG
 
@@ -24,7 +24,6 @@ __plugin_meta__ = PluginMetadata(
 
 
 IMAGE_CMD_TEXT = "查看今日人设图"
-IMAGE_REMINDER = f"发送「{IMAGE_CMD_TEXT}」可以生成今日人设图（需要{koinori_config.draw_cost}金币）。"
 IMAGE_PROMPT_NAME = ""
 
 OTHER_TRIGGERS = (
@@ -114,10 +113,19 @@ async def _target_name(bot: Bot, event: Event, target_external_id: str) -> str:
     return f"用户{target_external_id}"
 
 
-def _format_profile(uid: int, name: str, *, with_reminder: bool = False) -> str:
+async def _build_image_reminder(uid: int) -> str:
+    free_draw_count = await get_free_draw_count(uid)
+    if free_draw_count > 0:
+        cost_text = f"当前还剩{free_draw_count}次免费画图"
+    else:
+        cost_text = f"需要{koinori_config.draw_cost}金币"
+    return f"发送「{IMAGE_CMD_TEXT}」可以生成今日人设图（{cost_text}）。"
+
+
+def _format_profile(uid: int, name: str, *, reminder: str | None = None) -> str:
     profile = _choicer.format_msg(uid, name)
-    if with_reminder:
-        return f"{profile}\n\n{IMAGE_REMINDER}"
+    if reminder:
+        return f"{profile}\n\n{reminder}"
     return profile
 
 
@@ -143,7 +151,8 @@ async def handle_my_shaojo(
     uid: int = Depends(get_uid),
 ) -> None:
     name = await _sender_name(event)
-    await my_shaojo_cmd.finish(_format_profile(uid, name, with_reminder=True))
+    reminder = await _build_image_reminder(uid)
+    await my_shaojo_cmd.finish(_format_profile(uid, name, reminder=reminder))
 
 
 @my_shaojo_image_cmd.handle()
