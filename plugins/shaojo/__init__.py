@@ -140,7 +140,7 @@ def _format_profile(uid: int, name: str, *, reminder: str | None = None) -> str:
 
 def _build_image_prompt(profile: str) -> str:
     return (
-        "根据以下人设生成一张动漫角色立绘。"
+        "根据以下人设生成一张全年龄向、不含nsfw内容的动漫角色立绘。"
         "要求：穿着得体，不要文字、水印、签名；"
         "画面干净，柔和光照，角色特征清晰。"
         f"人设：{profile}"
