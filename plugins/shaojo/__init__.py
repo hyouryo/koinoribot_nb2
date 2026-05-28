@@ -194,7 +194,6 @@ async def handle_my_shaojo_image(
     display_profile = _format_profile(uid, name)
     prompt_profile = _format_image_prompt_profile(uid)
     prompt = _build_image_prompt(prompt_profile)
-    logger.info(f"shaojo image prompt: {prompt}")
     await do_draw(
         event,
         uid,
