@@ -41,6 +41,19 @@ BOT_SHOUJO = (
 
 _cq_at_re = re.compile(r"\[CQ:at,qq=(\d+)\]")
 _choicer = Choicer(SHOUJO_CONFIG)
+_image_height_re = re.compile(r"，身高[^，]*")
+_image_breastsize_re = re.compile(
+    "，(?:"
+    + "|".join(
+        re.escape(value)
+        for value in sorted(
+            set(SHOUJO_CONFIG["parts"]["breastsize"]),
+            key=len,
+            reverse=True,
+        )
+    )
+    + ")"
+)
 
 
 my_shaojo_cmd = on_fullmatch("今天我是什么少女", priority=5, block=True)
@@ -138,9 +151,15 @@ def _format_profile(uid: int, name: str, *, reminder: str | None = None) -> str:
     return profile
 
 
+def _format_image_prompt_profile(uid: int) -> str:
+    profile = _strip_image_prompt_subject(_format_profile(uid, IMAGE_PROMPT_NAME))
+    profile = _image_height_re.sub("，矮个子", profile)
+    return _image_breastsize_re.sub("", profile)
+
+
 def _build_image_prompt(profile: str) -> str:
     return (
-        "根据以下人设生成一张全年龄向、不含nsfw内容的动漫角色立绘。"
+        "根据以下人设生成一张全年龄向的动漫角色立绘。"
         "要求：穿着得体，不要文字、水印、签名；"
         "画面干净，柔和光照，角色特征清晰。"
         f"人设：{profile}"
@@ -173,8 +192,9 @@ async def handle_my_shaojo_image(
 
     name = await _sender_name(event, uid)
     display_profile = _format_profile(uid, name)
-    prompt_profile = _strip_image_prompt_subject(_format_profile(uid, IMAGE_PROMPT_NAME))
+    prompt_profile = _format_image_prompt_profile(uid)
     prompt = _build_image_prompt(prompt_profile)
+    logger.info(f"shaojo image prompt: {prompt}")
     await do_draw(
         event,
         uid,
