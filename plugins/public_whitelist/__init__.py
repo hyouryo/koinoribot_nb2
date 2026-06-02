@@ -170,6 +170,11 @@ def get_ws_info() -> dict:
     }
 
 
+def get_whitelist_web_url() -> str:
+    """获取白名单网页查询地址。"""
+    return f"http://{koinori_config.ip_address}:{WHITELIST_WEB_PORT}/"
+
+
 # ================== 白名单WS查询网页 ==================
 
 def _is_whitelist_pair(owner_qq: str, bot_qq: str) -> bool:
@@ -177,18 +182,27 @@ def _is_whitelist_pair(owner_qq: str, bot_qq: str) -> bool:
     return _cache_owner_to_bot.get(owner_qq) == bot_qq
 
 
-def _get_pending_review_id(owner_qq: str, bot_qq: str) -> Optional[int]:
-    """查询是否存在待审核的同一组领养申请。"""
+def _get_latest_review(owner_qq: str, bot_qq: str) -> Optional[dict]:
+    """查询同一组账号最近一条领养申请。"""
     conn = sqlite3.connect(_get_db_path())
     try:
         row = conn.execute(
-            '''SELECT id FROM whitelist_review
-               WHERE owner_qq = ? AND bot_qq = ? AND status = ?
+            '''SELECT id, status, review_comment, reviewed_at, created_at
+               FROM whitelist_review
+               WHERE owner_qq = ? AND bot_qq = ?
                ORDER BY id DESC
                LIMIT 1''',
-            (owner_qq, bot_qq, 'pending')
+            (owner_qq, bot_qq)
         ).fetchone()
-        return int(row[0]) if row else None
+        if not row:
+            return None
+        return {
+            "id": int(row[0]),
+            "status": row[1],
+            "review_comment": row[2],
+            "reviewed_at": row[3],
+            "created_at": row[4],
+        }
     finally:
         conn.close()
 
@@ -354,7 +368,7 @@ def _render_whitelist_page(
 <body>
   <main>
     <h1>云冰祈 WS 查询</h1>
-    <p class="subtitle">输入已领养的主人 QQ 与 bot QQ。</p>
+    <p class="subtitle">输入主人 QQ 与 bot QQ，查询审核状态和 WS 连接信息。</p>
     <form method="post" action="/">
       <label>
         主人 QQ
@@ -381,6 +395,8 @@ def _render_success_result(owner_qq: str, bot_qq: str) -> str:
     <section class="result success">
       <h2>白名单验证通过</h2>
       <dl>
+        <dt>审核状态</dt>
+        <dd>已通过，白名单已生效</dd>
         <dt>主人 QQ</dt>
         <dd>{safe_owner}</dd>
         <dt>bot QQ</dt>
@@ -397,17 +413,23 @@ def _render_success_result(owner_qq: str, bot_qq: str) -> str:
     </section>"""
 
 
-def _render_pending_result(owner_qq: str, bot_qq: str, review_id: int) -> str:
+def _render_pending_result(owner_qq: str, bot_qq: str, review: dict) -> str:
     ws_info = get_ws_info()
     ws_address = escape(ws_info.get("ws_address", "未配置"))
     safe_owner = escape(owner_qq)
     safe_bot = escape(bot_qq)
+    review_id = int(review["id"])
+    created_at = escape(str(review.get("created_at") or "未知"))
     return f"""
     <section class="result pending">
       <h2>申请正在审核中</h2>
       <dl>
+        <dt>审核状态</dt>
+        <dd>待审核</dd>
         <dt>申请编号</dt>
         <dd>{review_id}</dd>
+        <dt>申请时间</dt>
+        <dd>{created_at}</dd>
         <dt>主人 QQ</dt>
         <dd>{safe_owner}</dd>
         <dt>bot QQ</dt>
@@ -424,10 +446,42 @@ def _render_pending_result(owner_qq: str, bot_qq: str, review_id: int) -> str:
     </section>"""
 
 
-def _render_error_result(message: str) -> str:
+def _render_rejected_result(owner_qq: str, bot_qq: str, review: dict) -> str:
+    safe_owner = escape(owner_qq)
+    safe_bot = escape(bot_qq)
+    review_id = int(review["id"])
+    reason = escape(str(review.get("review_comment") or "无"))
+    reviewed_at = escape(str(review.get("reviewed_at") or "未知"))
+    return f"""
+    <section class="result error">
+      <h2>申请已被拒绝</h2>
+      <dl>
+        <dt>审核状态</dt>
+        <dd>已拒绝</dd>
+        <dt>申请编号</dt>
+        <dd>{review_id}</dd>
+        <dt>主人 QQ</dt>
+        <dd>{safe_owner}</dd>
+        <dt>bot QQ</dt>
+        <dd>{safe_bot}</dd>
+        <dt>审核时间</dt>
+        <dd>{reviewed_at}</dd>
+        <dt>拒绝理由</dt>
+        <dd>{reason}</dd>
+      </dl>
+      <p>该申请未通过审核，因此暂不返回 WS 连接地址。</p>
+    </section>"""
+
+
+def _render_error_result(message: str, status_text: str = "未找到") -> str:
+    safe_status = escape(status_text)
     return f"""
     <section class="result error">
       <h2>未返回连接信息</h2>
+      <dl>
+        <dt>审核状态</dt>
+        <dd>{safe_status}</dd>
+      </dl>
       <p>{escape(message)}</p>
     </section>"""
 
@@ -446,15 +500,27 @@ async def _handle_whitelist_web_query(request: web.Request) -> web.Response:
     bot_qq = str(data.get("bot_qq", "")).strip()
 
     if not owner_qq or not bot_qq:
-        result_html = _render_error_result("主人 QQ 和 bot QQ 都需要填写。")
+        result_html = _render_error_result("主人 QQ 和 bot QQ 都需要填写。", "无法查询")
     elif not owner_qq.isdigit() or not bot_qq.isdigit():
-        result_html = _render_error_result("主人 QQ 和 bot QQ 只能填写数字。")
+        result_html = _render_error_result("主人 QQ 和 bot QQ 只能填写数字。", "无法查询")
     elif _is_whitelist_pair(owner_qq, bot_qq):
         result_html = _render_success_result(owner_qq, bot_qq)
     else:
-        pending_review_id = _get_pending_review_id(owner_qq, bot_qq)
-        if pending_review_id is not None:
-            result_html = _render_pending_result(owner_qq, bot_qq, pending_review_id)
+        review = _get_latest_review(owner_qq, bot_qq)
+        if review and review.get("status") == "pending":
+            result_html = _render_pending_result(owner_qq, bot_qq, review)
+        elif review and review.get("status") == "rejected":
+            result_html = _render_rejected_result(owner_qq, bot_qq, review)
+        elif review and review.get("status") == "approved":
+            result_html = _render_error_result(
+                "审核状态为已通过，但白名单尚未生效，请联系管理员处理。",
+                "已通过，白名单未生效"
+            )
+        elif review:
+            result_html = _render_error_result(
+                "申请存在，但当前状态暂不返回 WS 连接地址。",
+                str(review.get("status") or "未知")
+            )
         else:
             result_html = _render_error_result("没有找到匹配的白名单绑定关系或待审核申请。")
 
@@ -816,16 +882,15 @@ async def handle_step_confirm(
 
     _apply_context.pop(user_id, None)
 
-    ws_info = get_ws_info()
-    ws_help = "\n".join(ws_info.get('connection_help', []))
+    web_url = get_whitelist_web_url()
     await adopt_cmd.finish(
         f"=== 云冰祈领养申请已提交 ===\n"
         f"申请编号: {review_id}\n"
+        f"主人 QQ: {ctx['owner_qq']}\n"
         f"bot QQ: {ctx['bot_qq']}\n\n"
-        f"请先配置你的bot连接：\n{ws_help}\n\n"
-        f"WS地址: {ws_info.get('ws_address', '未配置')}\n\n"
-        f"审核通过后你的bot即可接入~\n"
-        "请耐心等待管理员审核，发送「查询领养状态」查看进度",
+        f"网页查询审核状态和WS地址：\n{web_url}\n"
+        "在网页输入主人QQ和bot QQ即可查询。\n\n"
+        "也可以在QQ内发送「查询领养状态」查看审核进度。",
         at_sender=True
     )
 
