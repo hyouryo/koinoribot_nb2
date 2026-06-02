@@ -150,6 +150,20 @@ def remove_from_whitelist(owner_qq: str) -> Optional[str]:
         conn.close()
 
 
+def delete_review_records_for_bot(bot_qq: str) -> int:
+    """删除指定bot的所有审核记录，返回删除条数。"""
+    conn = sqlite3.connect(_get_db_path())
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM whitelist_review WHERE bot_qq = ?', (bot_qq,))
+        deleted_count = cursor.rowcount
+        conn.commit()
+        logger.info(f"[public_whitelist] 删除bot审核记录: bot={bot_qq}, count={deleted_count}")
+        return deleted_count
+    finally:
+        conn.close()
+
+
 def get_whitelist_size() -> int:
     return len(_cache_owner_to_bot)
 
@@ -1173,7 +1187,11 @@ async def handle_logout_whitelist(
 
     bot_qq = remove_from_whitelist(owner_qq)
     if bot_qq:
-        await logout_wl.finish(f"bot({bot_qq})注销云冰祈了...", at_sender=True)
+        deleted_count = delete_review_records_for_bot(bot_qq)
+        await logout_wl.finish(
+            f"bot({bot_qq})注销云冰祈了...\n已删除相关审核记录 {deleted_count} 条",
+            at_sender=True
+        )
     else:
         await logout_wl.finish("你还没有领养云冰祈...", at_sender=True)
 
