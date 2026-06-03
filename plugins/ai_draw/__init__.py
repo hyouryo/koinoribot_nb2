@@ -32,8 +32,7 @@ from ._image_response import (
     extract_image_reference,
     format_response_body_dump,
     format_response_json_dump,
-    parse_image_response_body,
-    summarize_response_json,
+    parse_image_response_json,
 )
 
 __plugin_meta__ = PluginMetadata(
@@ -324,14 +323,7 @@ async def translate_prompt(api_key: str, user_text: str) -> str:
 IMAGE_API_TIMEOUT = aiohttp.ClientTimeout(total=600, connect=30, sock_read=600)
 
 
-async def _read_error_response(resp: aiohttp.ClientResponse) -> str:
-    try:
-        return await resp.text()
-    except Exception:
-        return "(无法读取响应体)"
-
-
-async def _read_success_response_body(resp: aiohttp.ClientResponse, label: str) -> bytes:
+async def _read_response_body(resp: aiohttp.ClientResponse, label: str) -> bytes:
     try:
         return await resp.read()
     except asyncio.TimeoutError as e:
@@ -354,48 +346,46 @@ async def _consume_image_response(
     resp: aiohttp.ClientResponse,
     label: str,
 ) -> bytes:
+    body = await _read_response_body(resp, label)
+    content_type = resp.headers.get("Content-Type", "")
+
     if resp.status != 200:
-        body = await _read_success_response_body(resp, label)
-        content_type = resp.headers.get("Content-Type", "")
         dump = format_response_body_dump(body, content_type)
         logger.error(f"{label} API error: {resp.status}\n{dump}")
         raise RuntimeError(
             _append_response_debug(f"{label} API 返回错误: {resp.status}", dump)
         )
 
-    body = await _read_success_response_body(resp, label)
-    content_type = resp.headers.get("Content-Type", "")
     try:
-        parsed = parse_image_response_body(body, content_type)
+        data = parse_image_response_json(body, content_type)
     except ImageResponseParseError as e:
         dump = format_response_body_dump(body, content_type)
         logger.error(f"{label} response parse failed, raw response:\n{dump}")
         message = f"{label} 响应解析失败（图片可能已生成）: {e}"
         raise RuntimeError(_append_response_debug(message, dump)) from e
 
-    if isinstance(parsed, bytes):
-        logger.debug(f"{label} response returned direct image bytes: {len(parsed)} bytes")
-        return parsed
-
-    logger.debug(f"{label} response: {summarize_response_json(parsed)}")
     try:
-        return await _download_result(session, parsed)
+        image_ref = extract_image_reference(data)
+        if image_ref.url:
+            return await _download_image_url(session, image_ref.url)
+        return decode_base64_image(image_ref.b64_json or "")
     except RuntimeError as e:
-        dump = format_response_json_dump(parsed)
+        dump = format_response_json_dump(data)
         logger.error(f"{label} response had no usable image data:\n{dump}")
         raise RuntimeError(_append_response_debug(str(e), dump)) from e
 
 
 async def _download_image_url(session: aiohttp.ClientSession, image_url: str) -> bytes:
-    last_error = "unknown error"
+    last_error = ""
     for attempt in range(1, 4):
         try:
-            async with session.get(image_url, timeout=IMAGE_API_TIMEOUT) as img_resp:
+            async with session.get(image_url) as img_resp:
+                body = await _read_response_body(img_resp, "生成图片下载")
                 if img_resp.status == 200:
-                    return await img_resp.read()
+                    return body
 
-                text = await _read_error_response(img_resp)
-                last_error = f"HTTP {img_resp.status}: {text[:200]}"
+                dump = format_response_body_dump(body, img_resp.headers.get("Content-Type", ""))
+                last_error = f"HTTP {img_resp.status}\n{dump}"
                 if img_resp.status < 500:
                     break
         except (asyncio.TimeoutError, aiohttp.ClientError) as e:
@@ -405,21 +395,7 @@ async def _download_image_url(session: aiohttp.ClientSession, image_url: str) ->
         if attempt < 3:
             await asyncio.sleep(attempt)
 
-    raise RuntimeError(f"下载生成的图片时出错（图片可能已生成，请稍后重试）: {last_error}")
-
-
-async def _download_result(session: aiohttp.ClientSession, data: dict) -> bytes:
-    """从 GPT-Image-2 响应中提取图像，若响应包含业务错误则直接抛出"""
-    try:
-        reference = extract_image_reference(data)
-        if reference.url:
-            return await _download_image_url(session, reference.url)
-        if reference.b64_json:
-            return decode_base64_image(reference.b64_json)
-    except ImageResponseParseError as e:
-        raise RuntimeError(f"无法解析图像数据: {e}") from e
-
-    raise RuntimeError(f"无法解析图像数据，响应: {summarize_response_json(data)}")
+    raise RuntimeError(f"下载生成的图片失败（已重试 3 次）: {last_error}")
 
 
 async def generate_image(

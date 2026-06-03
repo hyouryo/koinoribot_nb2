@@ -1,4 +1,5 @@
 import base64
+import binascii
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -10,69 +11,58 @@ class ImageResponseParseError(RuntimeError):
 
 @dataclass(frozen=True)
 class ImageReference:
-    b64_json: str | None = None
     url: str | None = None
+    b64_json: str | None = None
 
 
-_IMAGE_MAGIC_BYTES = (
-    b"\x89PNG\r\n\x1a\n",
-    b"\xff\xd8\xff",
-    b"GIF87a",
-    b"GIF89a",
-    b"RIFF",
-)
-
-
-def parse_image_response_body(body: bytes, content_type: str = "") -> dict[str, Any] | bytes:
-    content_type = (content_type or "").split(";", 1)[0].strip().lower()
-    if _looks_like_image(body, content_type):
-        return body
-
+def parse_image_response_json(body: bytes, content_type: str = "") -> dict[str, Any]:
+    content_type = _normalize_content_type(content_type)
     if not body:
-        raise ImageResponseParseError(f"empty response body; content_type={content_type or 'unknown'}")
+        raise ImageResponseParseError(
+            f"empty response body; content_type={content_type}"
+        )
 
     try:
         text = body.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ImageResponseParseError(
-            f"response is neither JSON nor image bytes; content_type={content_type or 'unknown'}"
+            f"response body is not UTF-8 JSON; content_type={content_type}"
         ) from exc
 
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise ImageResponseParseError(
-            "response is neither JSON nor image bytes; "
-            f"content_type={content_type or 'unknown'}; "
-            f"body_preview={_body_preview(text)}"
+            "response body is not JSON; "
+            f"content_type={content_type}; body_preview={_one_line(text[:200])}"
         ) from exc
 
     if not isinstance(data, dict):
-        raise ImageResponseParseError(f"expected JSON object, got {type(data).__name__}")
+        raise ImageResponseParseError(
+            f"expected JSON object, got {type(data).__name__}"
+        )
     return data
 
 
 def extract_image_reference(data: dict[str, Any]) -> ImageReference:
-    relay_error = data.get("RelayError") or data.get("error")
-    if relay_error:
-        if isinstance(relay_error, str):
-            message = relay_error
-        elif isinstance(relay_error, dict):
-            message = relay_error.get("message") or str(relay_error)
-        else:
-            message = str(relay_error)
-        raise RuntimeError(f"GPT-Image-2 API returned error: {message}")
+    api_error = data.get("error") or data.get("RelayError")
+    if api_error:
+        raise ImageResponseParseError(f"API returned error: {_error_message(api_error)}")
 
-    for item in _candidate_items(data):
-        url = _first_string(item, "url", "image_url")
-        if url:
-            return ImageReference(url=url)
+    items = data.get("data")
+    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+        raise ImageResponseParseError("missing JSON field: data[0]")
 
-        b64_json = _first_string(item, "b64_json", "b64", "base64")
-        if b64_json:
-            return ImageReference(b64_json=b64_json)
+    item = items[0]
+    url = item.get("url")
+    if isinstance(url, str) and url:
+        return ImageReference(url=url)
 
-    raise ImageResponseParseError("no image field found")
+    b64_json = item.get("b64_json")
+    if isinstance(b64_json, str) and b64_json:
+        return ImageReference(b64_json=b64_json)
+
+    raise ImageResponseParseError("missing JSON field: data[0].url or data[0].b64_json")
 
 
 def decode_base64_image(value: str) -> bytes:
@@ -80,20 +70,15 @@ def decode_base64_image(value: str) -> bytes:
         _, sep, value = value.partition(",")
         if not sep:
             raise ImageResponseParseError("invalid data URL image payload")
-    value = "".join(value.split())
 
     try:
-        return base64.b64decode(value, validate=True)
-    except Exception as exc:
+        return base64.b64decode("".join(value.split()), validate=True)
+    except (binascii.Error, ValueError) as exc:
         raise ImageResponseParseError("image base64 decode failed") from exc
 
 
-def summarize_response_json(data: dict[str, Any]) -> str:
-    return json.dumps(_scrub_large_strings(data), ensure_ascii=False)[:500]
-
-
 def format_response_body_dump(body: bytes, content_type: str = "") -> str:
-    content_type = (content_type or "").strip() or "unknown"
+    content_type = _normalize_content_type(content_type)
     header = f"content_type={content_type}\nbody_bytes={len(body)}"
     if not body:
         return f"{header}\nbody=<empty>"
@@ -101,97 +86,33 @@ def format_response_body_dump(body: bytes, content_type: str = "") -> str:
     try:
         text = body.decode("utf-8-sig")
     except UnicodeDecodeError:
-        text = body.hex()
-        header += "\nbody_encoding=hex"
-    else:
-        header += "\nbody_encoding=utf-8"
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            pass
-        else:
-            return f"{header}\nbody_json={format_response_json_dump(data)}"
+        return f"{header}\nbody_encoding=hex\nbody={body.hex()}"
 
-    return f"{header}\nbody={text}"
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return f"{header}\nbody_encoding=utf-8\nbody={text}"
+
+    return f"{header}\nbody_encoding=utf-8\nbody_json={format_response_json_dump(data)}"
 
 
 def format_response_json_dump(data: Any) -> str:
     return json.dumps(_shorten_base64_fields(data), ensure_ascii=False, indent=2)
 
 
-def _candidate_items(data: dict[str, Any]):
-    yield data
-
-    image_data = data.get("data")
-    if isinstance(image_data, list):
-        for item in image_data:
-            if isinstance(item, dict):
-                yield item
-
-    output = data.get("output")
-    if isinstance(output, list):
-        for item in output:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") == "image_generation_call" and isinstance(item.get("result"), str):
-                yield {"b64_json": item["result"]}
-            yield item
-
-
-def _looks_like_image(body: bytes, content_type: str) -> bool:
-    if not body:
-        return False
-    if content_type.startswith("image/"):
-        return True
-    if body.startswith(b"RIFF") and body[8:12] == b"WEBP":
-        return True
-    return any(body.startswith(prefix) for prefix in _IMAGE_MAGIC_BYTES if prefix != b"RIFF")
-
-
-def _first_string(data: dict[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = data.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-
-def _body_preview(text: str, limit: int = 200) -> str:
-    return " ".join(text[:limit].split())
-
-
-def _scrub_large_strings(value: Any) -> Any:
+def _shorten_base64_fields(value: Any, key: str = "") -> Any:
     if isinstance(value, dict):
-        return {key: _scrub_large_strings(item) for key, item in value.items()}
+        return {k: _shorten_base64_fields(v, k) for k, v in value.items()}
     if isinstance(value, list):
-        return [_scrub_large_strings(item) for item in value]
-    if isinstance(value, str) and len(value) > 120:
-        return f"<string {len(value)} chars>"
-    return value
-
-
-def _shorten_base64_fields(value: Any, parent: dict[str, Any] | None = None) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: _shorten_base64_value(key, item, value)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_shorten_base64_fields(item, parent) for item in value]
-    return value
-
-
-def _shorten_base64_value(key: str, value: Any, parent: dict[str, Any]) -> Any:
-    if isinstance(value, str) and _is_base64_field(key, parent):
+        return [_shorten_base64_fields(item, key) for item in value]
+    if isinstance(value, str) and _is_base64_key(key):
         return _shorten_base64_string(value)
-    return _shorten_base64_fields(value, parent)
+    return value
 
 
-def _is_base64_field(key: str, parent: dict[str, Any]) -> bool:
+def _is_base64_key(key: str) -> bool:
     normalized = key.lower()
-    if "b64" in normalized or "base64" in normalized:
-        return True
-    return normalized == "result" and parent.get("type") == "image_generation_call"
+    return "b64" in normalized or "base64" in normalized
 
 
 def _shorten_base64_string(value: str) -> str:
@@ -203,3 +124,19 @@ def _shorten_base64_string(value: str) -> str:
     if len(value) > 10:
         return f"{value[:10]}..."
     return value
+
+
+def _normalize_content_type(content_type: str) -> str:
+    return (content_type or "unknown").split(";", 1)[0].strip().lower() or "unknown"
+
+
+def _error_message(error: Any) -> str:
+    if isinstance(error, str):
+        return error
+    if isinstance(error, dict):
+        return str(error.get("message") or error)
+    return str(error)
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
