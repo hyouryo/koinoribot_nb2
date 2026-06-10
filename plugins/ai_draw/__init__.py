@@ -399,7 +399,11 @@ async def _download_image_url(session: aiohttp.ClientSession, image_url: str) ->
 
 
 async def generate_image(
-    api_key: str, prompt: str, size: str = "auto"
+    api_key: str,
+    prompt: str,
+    size: str = "auto",
+    quality: str = "high",
+    style: str | None = None,
 ) -> bytes:
     """调用 GPT-Image-2 文本生图"""
     url = f"{koinori_config.gpt_image_api_base_url}/images/generations"
@@ -407,7 +411,14 @@ async def generate_image(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    payload = {"model": koinori_config.gpt_image_model, "prompt": prompt, "size": size}
+    payload = {
+        "model": koinori_config.gpt_image_model,
+        "prompt": prompt,
+        "size": size,
+        "quality": quality,
+    }
+    if style:
+        payload["style"] = style
 
     async with aiohttp.ClientSession(timeout=IMAGE_API_TIMEOUT) as session:
         async with session.post(url, headers=headers, json=payload) as resp:
@@ -415,7 +426,11 @@ async def generate_image(
 
 
 async def generate_image_edit(
-    api_key: str, prompt: str, image_bytes: bytes, size: str = "auto"
+    api_key: str,
+    prompt: str,
+    image_bytes: bytes,
+    size: str = "auto",
+    quality: str = "high",
 ) -> bytes:
     """调用 GPT-Image-2 图片编辑（含参考图）"""
     url = f"{koinori_config.gpt_image_api_base_url}/images/edits"
@@ -424,6 +439,7 @@ async def generate_image_edit(
     form_data.add_field("model", koinori_config.gpt_image_model)
     form_data.add_field("prompt", prompt)
     form_data.add_field("size", size)
+    form_data.add_field("quality", quality)
     image_filename, image_content_type = detect_image_upload_meta(image_bytes)
     form_data.add_field(
         "image",
@@ -543,6 +559,8 @@ async def do_draw(
     progress_text: str | None = None,
     success_text: str | None = None,
     size: str = "auto",
+    quality: str = "high",
+    style: str | None = None,
 ) -> None:
     """执行文本生图"""
     if cmd is None:
@@ -571,7 +589,11 @@ async def do_draw(
 
     try:
         image_bytes = await generate_image(
-            koinori_config.gpt_image_api_key, user_text, size=size
+            koinori_config.gpt_image_api_key,
+            user_text,
+            size=size,
+            quality=quality,
+            style=style,
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
