@@ -49,6 +49,7 @@ NAME_MAP = {
 
 _current_uid: ContextVar[Optional[int]] = ContextVar("koinori_money_current_uid", default=None)
 _task_uids: WeakKeyDictionary[asyncio.Task, int] = WeakKeyDictionary()
+TEMP_UID_SOURCE_LOG = True
 
 
 def _get_current_task() -> Optional[asyncio.Task]:
@@ -76,6 +77,22 @@ def _find_uid_in_stack() -> Optional[int]:
     finally:
         del frame
     return None
+
+
+def _log_uid_source(
+    source: str,
+    uid: Optional[int],
+    stack_uid: Optional[int],
+    context_uid: Optional[int],
+    task_uid: Optional[int],
+):
+    if not TEMP_UID_SOURCE_LOG:
+        return
+    logger.info(
+        "[money-uid-source] "
+        f"source={source} uid={uid} "
+        f"stack_uid={stack_uid} context_uid={context_uid} task_uid={task_uid}"
+    )
 
 
 class _MoneyRepository:
@@ -477,20 +494,25 @@ class MoneyProxy:
     @property
     def uid(self) -> int:
         stack_uid = _find_uid_in_stack()
+        context_uid = _current_uid.get()
+        task = _get_current_task()
+        task_uid = _task_uids.get(task) if task is not None else None
+
         if stack_uid is not None:
             bind_current_uid(stack_uid)
+            _log_uid_source("stack", stack_uid, stack_uid, context_uid, task_uid)
             return stack_uid
 
-        uid = _current_uid.get()
-        if uid is not None:
-            return uid
+        if context_uid is not None:
+            _log_uid_source("context", context_uid, stack_uid, context_uid, task_uid)
+            return context_uid
 
-        task = _get_current_task()
-        if task is not None and task in _task_uids:
-            uid = _task_uids[task]
-            _current_uid.set(uid)
-            return uid
+        if task_uid is not None:
+            _current_uid.set(task_uid)
+            _log_uid_source("task", task_uid, stack_uid, context_uid, task_uid)
+            return task_uid
 
+        _log_uid_source("missing", None, stack_uid, context_uid, task_uid)
         raise RuntimeError("当前用户 UID 未绑定，请先通过 get_uid 依赖注入或 money.bind(uid) 绑定")
 
     @property
