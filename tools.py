@@ -31,8 +31,8 @@ def _get_platform_uid(event: Event) -> str:
     return uid
 
 
-def get_uid(event: Event, platform_uid: str = Depends(_get_platform_uid)) -> int:
-    """获取统一 UID（依赖注入版本）"""
+def resolve_uid(event: Event, platform_uid: str) -> int:
+    """根据事件和平台 UID 获取统一 UID，并绑定当前钱包上下文。"""
     uuid = None
     if isinstance(event, onebot.Event):
         uuid = get_unified_uid(platform="onebot", external_id=platform_uid)
@@ -44,6 +44,11 @@ def get_uid(event: Event, platform_uid: str = Depends(_get_platform_uid)) -> int
     bind_current_uid(uuid)
     logger.debug(f"获取统一UID：{uuid}")
     return uuid
+
+
+async def get_uid(event: Event, platform_uid: str = Depends(_get_platform_uid)) -> int:
+    """获取统一 UID（依赖注入版本）"""
+    return resolve_uid(event, platform_uid)
 
 
 def get_group_id(event: Event) -> str:
@@ -115,7 +120,7 @@ async def get_sender_nickname(event: Event) -> str:
     """获取发送者昵称"""
     try:
         platform_uid = event.get_user_id()
-        uid = get_uid(event, platform_uid)
+        uid = resolve_uid(event, platform_uid)
         custom_nickname = get_user_nickname(uid)
         if custom_nickname:
             return custom_nickname
