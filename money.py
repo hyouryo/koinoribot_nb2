@@ -5,9 +5,12 @@
 对业务层暴露当前用户钱包代理，例如 money.gold -= 1000。
 """
 
+import asyncio
 from contextvars import ContextVar
 import sqlite3
+import sys
 from typing import Optional, Union
+from weakref import WeakKeyDictionary
 
 from nonebot.log import logger
 
@@ -45,6 +48,34 @@ NAME_MAP = {
 }
 
 _current_uid: ContextVar[Optional[int]] = ContextVar("koinori_money_current_uid", default=None)
+_task_uids: WeakKeyDictionary[asyncio.Task, int] = WeakKeyDictionary()
+
+
+def _get_current_task() -> Optional[asyncio.Task]:
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
+def _bind_task_uid(uid: int):
+    task = _get_current_task()
+    if task is not None:
+        _task_uids[task] = uid
+
+
+def _find_uid_in_stack() -> Optional[int]:
+    frame = None
+    try:
+        frame = sys._getframe(2)
+        while frame:
+            candidate = frame.f_locals.get("uid")
+            if isinstance(candidate, int) and not isinstance(candidate, bool):
+                return int(candidate)
+            frame = frame.f_back
+    finally:
+        del frame
+    return None
 
 
 class _MoneyRepository:
@@ -445,10 +476,22 @@ class MoneyProxy:
 
     @property
     def uid(self) -> int:
+        stack_uid = _find_uid_in_stack()
+        if stack_uid is not None:
+            bind_current_uid(stack_uid)
+            return stack_uid
+
         uid = _current_uid.get()
-        if uid is None:
-            raise RuntimeError("当前用户 UID 未绑定，请先通过 get_uid 依赖注入或 money.bind(uid) 绑定")
-        return uid
+        if uid is not None:
+            return uid
+
+        task = _get_current_task()
+        if task is not None and task in _task_uids:
+            uid = _task_uids[task]
+            _current_uid.set(uid)
+            return uid
+
+        raise RuntimeError("当前用户 UID 未绑定，请先通过 get_uid 依赖注入或 money.bind(uid) 绑定")
 
     @property
     def current(self) -> UserWallet:
@@ -500,6 +543,7 @@ def bind_current_uid(uid: int) -> UserWallet:
     """绑定当前上下文 UID，并返回该用户钱包。"""
     uid = int(uid)
     _current_uid.set(uid)
+    _bind_task_uid(uid)
     return UserWallet(uid)
 
 
