@@ -51,7 +51,10 @@ from ... import uid_manager
 # 宠物相关
 from ..chongwu.pet import get_user_pet, add_user_item
 # SU 权限管理
-from ...su_manager import is_su, get_su_level, get_all_su_uids, check_su_permission, record_su_usage
+from ...su_manager import (
+    is_su, get_su_level, get_all_su_uids, check_su_permission, record_su_usage,
+    SU_LEVEL_CONTRIBUTOR,
+)
 __plugin_meta__ = PluginMetadata(
     name="chaogu",
     description="股票市场系统 - 完整版（含幸运游戏、转盘、低保）",
@@ -1362,14 +1365,20 @@ async def handle_admin_reduce_uid(event: Event, bot: Bot, uid: int = Depends(get
         amount = int(parts[1])
     except ValueError:
         await admin_reduce_uid_cmd.finish("UID和金额必须是数字！", at_sender=True)
+
+    if amount <= 0:
+        await admin_reduce_uid_cmd.finish("金额必须是正整数！", at_sender=True)
     
     if not uid_manager.is_uid_exists(target_uid):
         await admin_reduce_uid_cmd.finish(f"找不到 UID:{target_uid} 对应的账户", at_sender=True)
+
+    if get_su_level(uid) != SU_LEVEL_CONTRIBUTOR and target_uid != uid:
+        await admin_reduce_uid_cmd.finish('权限不足', at_sender=True)
     
     target_wallet = money.of(target_uid)
     target_gold = target_wallet.gold
     
-    deduct_amount = min(amount, target_gold)
+    deduct_amount = min(amount, max(target_gold, 0))
     target_wallet.gold -= deduct_amount
     await admin_reduce_uid_cmd.finish(f'已从 UID:{target_uid} 扣款 {deduct_amount} 金币', at_sender=True)
 
@@ -1393,15 +1402,21 @@ async def handle_admin_reduce_qq(event: Event, bot: Bot, uid: int = Depends(get_
         amount = int(parts[1])
     except ValueError:
         await admin_reduce_qq_cmd.finish("金额必须是数字！", at_sender=True)
+
+    if amount <= 0:
+        await admin_reduce_qq_cmd.finish("金额必须是正整数！", at_sender=True)
     
     # QQ号转UID
     target_uid = uid_manager.get_uid_by_external_id("onebot", target_qq)
     if target_uid is None:
         await admin_reduce_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
+
+    if get_su_level(uid) != SU_LEVEL_CONTRIBUTOR and target_uid != uid:
+        await admin_reduce_qq_cmd.finish('权限不足', at_sender=True)
     
     target_wallet = money.of(target_uid)
     target_gold = target_wallet.gold
     
-    deduct_amount = min(amount, target_gold)
+    deduct_amount = min(amount, max(target_gold, 0))
     target_wallet.gold -= deduct_amount
     await admin_reduce_qq_cmd.finish(f'已从 QQ:{target_qq} (UID:{target_uid}) 扣款 {deduct_amount} 金币', at_sender=True)

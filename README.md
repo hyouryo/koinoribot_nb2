@@ -113,8 +113,8 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 | `抢红包` | 抢当前群红包 |
 | `打款uid <uid> <金额>` | SU 给指定 UID 打款 |
 | `打款qq <QQ号> <金额>` | SU 给指定 QQ 账号打款 |
-| `扣款uid <uid> <金额>` | SU 扣除指定 UID 金币 |
-| `扣款qq <QQ号> <金额>` | SU 扣除指定 QQ 账号金币 |
+| `扣款uid <uid> <金额>` | SU 扣除指定 UID 金币；非 level 0 SU 只能扣自己 |
+| `扣款qq <QQ号> <金额>` | SU 扣除指定 QQ 账号金币；非 level 0 SU 只能扣自己 |
 
 ## 钓鱼与漂流瓶
 
