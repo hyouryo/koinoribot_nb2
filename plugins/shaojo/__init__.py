@@ -139,6 +139,8 @@ async def _build_image_reminder(uid: int) -> str:
     free_draw_count = await get_free_draw_count(uid)
     if free_draw_count > 0:
         cost_text = f"当前还剩{free_draw_count}次免费画图"
+    elif not koinori_config.enable_gold_aidraw:
+        cost_text = "当前没有免费画图次数"
     else:
         cost_text = f"需要{koinori_config.draw_cost}金币"
     return f"发送「{IMAGE_CMD_TEXT}」可以生成今日人设图（{cost_text}）。"
@@ -201,8 +203,7 @@ async def handle_my_shaojo_image(
         cmd=my_shaojo_image_cmd,
         progress_text=f"今日人设图生成中…\n已扣除{koinori_config.draw_cost}金币",
         success_text=f"人设：\n{display_profile}",
-        size="800x1200",
-        quality="high",
+        size=koinori_config.shaojo_image_size,
     )
 
 

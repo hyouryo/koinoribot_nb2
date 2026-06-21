@@ -86,6 +86,9 @@ class KoinoribotConfig(BaseModel):
     draw_cost: int = 200000                                            # 画图消耗金币
     daily_limit: int = 3                                               # 每日画图次数限制
     ai_draw_enable: bool = True                                        # 是否启用AI画图功能
+    ai_draw_size: str = "auto"                                         # 普通画图尺寸
+    shaojo_image_size: str = "800x1200"                                # 今日人设图尺寸
+    enable_gold_aidraw: bool = True                                    # 是否允许消耗金币画图；False 时仅允许使用免费次数
 
     # ================== 其他配置 ==================
     star_price: int = 0                     # 多连钓鱼是否消耗星星

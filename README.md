@@ -46,7 +46,7 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 - `dibao`、`gold_max`、`transfer_fee`、`min_rest`：经济系统参数。
 - `cool_time`、`fish_cd`、`bait_price`、`bottle_price`、`comment_price`：钓鱼和漂流瓶参数。
 - `gpt_image_api_key`、`gpt_image_api_base_url`、`gpt_image_model`：AI 画图/修图接口配置。
-- `draw_cost`、`daily_limit`、`ai_draw_enable`：画图金币消耗、日限与开关。
+- `draw_cost`、`daily_limit`、`ai_draw_enable`、`enable_gold_aidraw`、`ai_draw_size`、`shaojo_image_size`：画图消耗、日限、开关与尺寸。
 - `public_bot`、`permit_bot`、`permit_group`、`ip_address`：公网白名单模式配置。
 
 数据会自动写入 `src/database/koinoribot.db`。图片、字体等静态资源位于 `src/img` 和 `src/fonts`。

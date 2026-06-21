@@ -402,7 +402,6 @@ async def generate_image(
     api_key: str,
     prompt: str,
     size: str = "auto",
-    quality: str = "high",
 ) -> bytes:
     """调用 GPT-Image-2 文本生图"""
     url = f"{koinori_config.gpt_image_api_base_url}/images/generations"
@@ -414,7 +413,6 @@ async def generate_image(
         "model": koinori_config.gpt_image_model,
         "prompt": prompt,
         "size": size,
-        "quality": quality,
     }
 
     async with aiohttp.ClientSession(timeout=IMAGE_API_TIMEOUT) as session:
@@ -427,7 +425,6 @@ async def generate_image_edit(
     prompt: str,
     image_bytes: bytes,
     size: str = "auto",
-    quality: str = "high",
 ) -> bytes:
     """调用 GPT-Image-2 图片编辑（含参考图）"""
     url = f"{koinori_config.gpt_image_api_base_url}/images/edits"
@@ -436,7 +433,6 @@ async def generate_image_edit(
     form_data.add_field("model", koinori_config.gpt_image_model)
     form_data.add_field("prompt", prompt)
     form_data.add_field("size", size)
-    form_data.add_field("quality", quality)
     image_filename, image_content_type = detect_image_upload_meta(image_bytes)
     form_data.add_field(
         "image",
@@ -472,6 +468,10 @@ async def check_quota_and_balance(uid: int, cmd, allow_free_draw: bool = True) -
     if allow_free_draw and await get_free_draw_count(uid) > 0:
         return True
 
+    if not koinori_config.enable_gold_aidraw:
+        await cmd.finish("当前仅允许使用免费画图次数，请先获取免费次数后再来画图~", at_sender=True)
+        return False
+
     wallet = money.of(uid)
     user_gold = wallet.gold
     if user_gold < koinori_config.draw_cost:
@@ -499,6 +499,9 @@ def pay_draw_cost(uid: int, allow_free_draw: bool = True) -> DrawPayment:
             conn.commit()
             if cursor.rowcount:
                 return DrawPayment(success=True, used_free_draw=True)
+
+    if not koinori_config.enable_gold_aidraw:
+        return DrawPayment(success=False)
 
     money.of(uid).gold -= koinori_config.draw_cost
     return DrawPayment(success=True)
@@ -555,12 +558,12 @@ async def do_draw(
     cmd=None,
     progress_text: str | None = None,
     success_text: str | None = None,
-    size: str = "auto",
-    quality: str = "high",
+    size: str | None = None,
 ) -> None:
     """执行文本生图"""
     if cmd is None:
         cmd = draw_cmd
+    draw_size = koinori_config.ai_draw_size if size is None else size
 
     if not await check_quota_and_balance(uid, cmd):
         return
@@ -587,8 +590,7 @@ async def do_draw(
         image_bytes = await generate_image(
             koinori_config.gpt_image_api_key,
             user_text,
-            size=size,
-            quality=quality,
+            size=draw_size,
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
