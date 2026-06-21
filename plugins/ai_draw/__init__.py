@@ -40,7 +40,9 @@ __plugin_meta__ = PluginMetadata(
     description="AI画图 - DeepSeek翻译提示词 + GPT-Image-2生成图像",
     usage=(
         "冰祈画图 <描述>    生成图像\n"
+        "冰祈画图high <描述>    生成高质量图像，仅限 level 0 SU\n"
         "冰祈修图 <描述> + 图片  编辑图像\n"
+        "冰祈修图high <描述> + 图片  高质量编辑图像，仅限 level 0 SU\n"
         "全局重置画图次数 / 重置画图次数 <uid>  管理日限"
     ),
 )
@@ -53,12 +55,21 @@ draw_limiter = FreqLimiter(30)
 # 注册命令
 draw_cmd = on_command(
     "冰祈画图",
-    aliases={"冰祈绘图", "冰祈画个图", "冰祈绘个图", "梦灵画图", "梦灵绘图", "梦灵画个图", "梦灵绘个图"},
+    aliases={"梦灵画图"},
+    priority=5,
+    block=True,
+)
+draw_high_cmd = on_command(
+    "冰祈画图high",
+    aliases={"梦灵画图high"},
     priority=5,
     block=True,
 )
 edit_cmd = on_command(
     "冰祈修图", aliases={"梦灵修图"}, priority=5, block=True
+)
+edit_high_cmd = on_command(
+    "冰祈修图high", aliases={"梦灵修图high"}, priority=5, block=True
 )
 reset_all_usage_cmd = on_command("全局重置画图次数", priority=5, block=True)
 reset_usage_cmd = on_command("重置画图次数", priority=5, block=True)
@@ -402,6 +413,7 @@ async def generate_image(
     api_key: str,
     prompt: str,
     size: str = "auto",
+    quality: str = "medium",
 ) -> bytes:
     """调用 GPT-Image-2 文本生图"""
     url = f"{koinori_config.gpt_image_api_base_url}/images/generations"
@@ -413,6 +425,7 @@ async def generate_image(
         "model": koinori_config.gpt_image_model,
         "prompt": prompt,
         "size": size,
+        "quality": quality,
     }
 
     async with aiohttp.ClientSession(timeout=IMAGE_API_TIMEOUT) as session:
@@ -425,6 +438,7 @@ async def generate_image_edit(
     prompt: str,
     image_bytes: bytes,
     size: str = "auto",
+    quality: str = "medium",
 ) -> bytes:
     """调用 GPT-Image-2 图片编辑（含参考图）"""
     url = f"{koinori_config.gpt_image_api_base_url}/images/edits"
@@ -433,6 +447,7 @@ async def generate_image_edit(
     form_data.add_field("model", koinori_config.gpt_image_model)
     form_data.add_field("prompt", prompt)
     form_data.add_field("size", size)
+    form_data.add_field("quality", quality)
     image_filename, image_content_type = detect_image_upload_meta(image_bytes)
     form_data.add_field(
         "image",
@@ -551,6 +566,22 @@ async def ensure_draw_available(event: Event, uid: int, cmd) -> None:
         await cmd.finish("AI画图功能维护中，暂时不可用~", at_sender=True)
 
 
+async def ensure_edit_available(event: Event, uid: int, cmd) -> None:
+    """检查图片编辑功能是否可用。"""
+    if not koinori_config.gpt_image_api_key:
+        await cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
+    if is_qqbot(event):
+        await cmd.finish("AI修图功能暂不支持QQbot~", at_sender=True)
+    if not koinori_config.ai_draw_enable and not is_su_contributor(uid):
+        await cmd.finish("AI修图功能维护中，暂时不可用~", at_sender=True)
+
+
+async def ensure_high_quality_allowed(uid: int, cmd) -> None:
+    """高质量画图/修图仅限 level 0 SU。"""
+    if not is_su_contributor(uid):
+        await cmd.finish("高质量AI绘图/修图仅限权限等级为 0 的 SU 使用。", at_sender=True)
+
+
 async def do_draw(
     event: Event,
     uid: int,
@@ -559,11 +590,13 @@ async def do_draw(
     progress_text: str | None = None,
     success_text: str | None = None,
     size: str | None = None,
+    quality: str | None = None,
 ) -> None:
     """执行文本生图"""
     if cmd is None:
         cmd = draw_cmd
     draw_size = koinori_config.ai_draw_size if size is None else size
+    draw_quality = koinori_config.aidraw_quality if quality is None else quality
 
     if not await check_quota_and_balance(uid, cmd):
         return
@@ -591,6 +624,7 @@ async def do_draw(
             koinori_config.gpt_image_api_key,
             user_text,
             size=draw_size,
+            quality=draw_quality,
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
@@ -614,54 +648,67 @@ async def do_draw(
         await cmd.finish()
 
 
-async def do_edit(event: Event, uid: int, user_text: str) -> None:
+async def do_edit(
+    event: Event,
+    uid: int,
+    user_text: str,
+    cmd=None,
+    quality: str | None = None,
+) -> None:
     """执行图片编辑"""
+    if cmd is None:
+        cmd = edit_cmd
+    edit_quality = koinori_config.aidraw_quality if quality is None else quality
+
     try:
         ref_image = await extract_image(event)
     except RuntimeError as e:
-        await edit_cmd.finish(f"获取参考图失败: {e}", at_sender=True)
+        await cmd.finish(f"获取参考图失败: {e}", at_sender=True)
         return
 
     if not ref_image:
-        await edit_cmd.finish(
+        await cmd.finish(
             "请附带一张参考图再使用修图命令哦~\n例: 发送冰祈修图[附带图片] 把背景换成赛博朋克风格",
             at_sender=True,
         )
         return
 
     if not user_text.strip():
-        await edit_cmd.finish("请输入修图描述，例如: 冰祈修图[附带图片] 把猫变成金色的", at_sender=True)
+        await cmd.finish("请输入修图描述，例如: 冰祈修图[附带图片] 把猫变成金色的", at_sender=True)
         return
 
-    if not await check_quota_and_balance(uid, edit_cmd, allow_free_draw=False):
+    if not await check_quota_and_balance(uid, cmd, allow_free_draw=False):
         return
 
     if not draw_limiter.check(uid):
         left = round(draw_limiter.left_time(uid))
-        await edit_cmd.finish(f"修图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
+        await cmd.finish(f"修图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
     draw_limiter.start_cd(uid)
 
     prompt = user_text.strip()
     payment = pay_draw_cost(uid, allow_free_draw=False)
     if not payment:
-        await edit_cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
+        await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
 
     user_gold_after = money.of(uid).gold
-    await edit_cmd.send(f"少女修图中…\n已扣除 {koinori_config.draw_cost} 金币 (剩余 {user_gold_after})")
+    await cmd.send(f"少女修图中…\n已扣除 {koinori_config.draw_cost} 金币 (剩余 {user_gold_after})")
 
     try:
         image_bytes = await generate_image_edit(
-            koinori_config.gpt_image_api_key, prompt, ref_image
+            koinori_config.gpt_image_api_key,
+            prompt,
+            ref_image,
+            quality=edit_quality,
         )
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
         refund_text = refund_draw_payment(uid, payment)
         logger.error(f"修图失败: {e}")
-        await edit_cmd.finish(f"修图失败: {e}\n{refund_text}", at_sender=True)
+        await cmd.finish(f"修图失败: {e}\n{refund_text}", at_sender=True)
     except Exception as e:
         refund_text = refund_draw_payment(uid, payment)
         logger.error(f"修图异常: {type(e).__name__}: {e}")
-        await edit_cmd.finish(f"修图出错了: {e}\n{refund_text}", at_sender=True)
+        await cmd.finish(f"修图出错了: {e}\n{refund_text}", at_sender=True)
     else:
         await record_draw_success(uid)
         try:
@@ -669,10 +716,10 @@ async def do_edit(event: Event, uid: int, user_text: str) -> None:
                 f"提示词：\n{prompt}",
                 image_msg,
             )
-            await edit_cmd.send(result_msg, at_sender=True)
+            await cmd.send(result_msg, at_sender=True)
         except ActionFailed:
             logger.warning("修图发送图片超时，但图片可能已送达")
-        await edit_cmd.finish()
+        await cmd.finish()
 
 
 # ═══════════════ 命令入口 ═══════════════
@@ -723,13 +770,42 @@ async def handle_draw(
 ):
 #    if not koinori_config.deepseek_api_key:
 #        await draw_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
-    await ensure_draw_available(event, uid, draw_cmd)
+    await handle_draw_command(event, uid, args, draw_cmd)
+
+
+@draw_high_cmd.handle()
+async def handle_draw_high(
+    event: Event,
+    bot: Bot,
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid),
+):
+#    if not koinori_config.deepseek_api_key:
+#        await draw_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
+    await ensure_high_quality_allowed(uid, draw_high_cmd)
+    await handle_draw_command(
+        event,
+        uid,
+        args,
+        draw_high_cmd,
+        quality=koinori_config.aidraw_high_quality,
+    )
+
+
+async def handle_draw_command(
+    event: Event,
+    uid: int,
+    args: Message,
+    cmd,
+    quality: str | None = None,
+) -> None:
+    await ensure_draw_available(event, uid, cmd)
 
     user_text = args.extract_plain_text().strip()
     if not user_text:
-        await draw_cmd.finish("请输入画图描述，例如: 冰祈画图 一只可爱的猫", at_sender=True)
+        await cmd.finish("请输入画图描述，例如: 冰祈画图 一只可爱的猫", at_sender=True)
 
-    await do_draw(event, uid, user_text)
+    await do_draw(event, uid, user_text, cmd=cmd, quality=quality)
 
 
 @edit_cmd.handle()
@@ -741,12 +817,35 @@ async def handle_edit(
 ):
 #    if not koinori_config.deepseek_api_key:
 #        await edit_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
-    if not koinori_config.gpt_image_api_key:
-        await edit_cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
-    if is_qqbot(event):
-        await edit_cmd.finish("AI修图功能暂不支持QQbot~", at_sender=True)
-    if not koinori_config.ai_draw_enable and not is_su_contributor(uid):
-        await edit_cmd.finish("AI修图功能维护中，暂时不可用~", at_sender=True)
+    await handle_edit_command(event, uid, args, edit_cmd)
 
+
+@edit_high_cmd.handle()
+async def handle_edit_high(
+    event: Event,
+    bot: Bot,
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid),
+):
+#    if not koinori_config.deepseek_api_key:
+#        await edit_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
+    await ensure_high_quality_allowed(uid, edit_high_cmd)
+    await handle_edit_command(
+        event,
+        uid,
+        args,
+        edit_high_cmd,
+        quality=koinori_config.aidraw_high_quality,
+    )
+
+
+async def handle_edit_command(
+    event: Event,
+    uid: int,
+    args: Message,
+    cmd,
+    quality: str | None = None,
+) -> None:
+    await ensure_edit_available(event, uid, cmd)
     user_text = args.extract_plain_text().strip()
-    await do_edit(event, uid, user_text)
+    await do_edit(event, uid, user_text, cmd=cmd, quality=quality)

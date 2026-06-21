@@ -46,7 +46,7 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 - `dibao`、`gold_max`、`transfer_fee`、`min_rest`：经济系统参数。
 - `cool_time`、`fish_cd`、`bait_price`、`bottle_price`、`comment_price`：钓鱼和漂流瓶参数。
 - `gpt_image_api_key`、`gpt_image_api_base_url`、`gpt_image_model`：AI 画图/修图接口配置。
-- `draw_cost`、`daily_limit`、`ai_draw_enable`、`enable_gold_aidraw`、`ai_draw_size`、`shaojo_image_size`：画图消耗、日限、开关与尺寸。
+- `draw_cost`、`daily_limit`、`ai_draw_enable`、`enable_gold_aidraw`、`ai_draw_size`、`shaojo_image_size`、`aidraw_quality`、`aidraw_high_quality`：画图消耗、日限、开关、尺寸与质量。
 - `public_bot`、`permit_bot`、`permit_group`、`ip_address`：公网白名单模式配置。
 
 数据会自动写入 `src/database/koinoribot.db`。图片、字体等静态资源位于 `src/img` 和 `src/fonts`。
@@ -196,9 +196,12 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 | 命令 | 用途 |
 | :--- | :--- |
 | `冰祈画图 <描述>` | 生成图片 |
+| `冰祈画图high <描述>` | 生成高质量图片，仅限 level 0 SU |
 | `冰祈修图 <描述>` + 图片 | 基于参考图进行修图 |
+| `冰祈修图high <描述>` + 图片 | 基于参考图进行高质量修图，仅限 level 0 SU |
 | `今天我是什么少女` | 生成自己的今日少女设定 |
 | `查看今日人设图` | 根据今日少女设定生成图片 |
+| `查看今日人设图high` | 根据今日少女设定生成高质量图片，仅限 level 0 SU |
 | `今天你是什么少女 @用户` | 查看被 at 用户的今日少女设定 |
 | `重置画图次数 <uid>` | level 0 SU 重置指定 UID 今日画图次数 |
 | `全局重置画图次数` | level 0 SU 重置全部用户今日画图次数 |
@@ -265,3 +268,8 @@ http://<ip_address>:8888/
 2. 发送 `宠物飞升` 推进飞升进度。
 3. 飞升成功后通过 `修炼`、`突破`、`幸运突破` 提升境界。
 4. 发送 `渡劫飞升` 尝试最终飞升。
+
+## 额外说明
+
+- 关于部分插件需要用到的静态图片资源文件与字体文件，恕不在此公开。如有需要可以移步[插件试用群](https://jq.qq.com/?_wv=1027&k=fdFbP60u)。
+- 测试环境：Windows11 24H2；Python 3.11.2。

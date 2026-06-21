@@ -88,6 +88,8 @@ class KoinoribotConfig(BaseModel):
     ai_draw_enable: bool = True                                        # 是否启用AI画图功能
     ai_draw_size: str = "auto"                                         # 普通画图尺寸
     shaojo_image_size: str = "800x1200"                                # 今日人设图尺寸
+    aidraw_quality: str = "medium"                                     # 普通画图、修图、人设图质量
+    aidraw_high_quality: str = "high"                                  # 高质量画图、修图、人设图质量
     enable_gold_aidraw: bool = True                                    # 是否允许消耗金币画图；False 时仅允许使用免费次数
 
     # ================== 其他配置 ==================

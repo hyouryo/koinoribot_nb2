@@ -13,18 +13,24 @@ from ...koinori_config import config as koinori_config
 from ...nickname import get_user_nickname
 from ...tools import get_sender_nickname, get_uid
 from ...uid_manager import get_uid as get_unified_uid
-from ..ai_draw import do_draw, ensure_draw_available, get_free_draw_count
+from ..ai_draw import (
+    do_draw,
+    ensure_draw_available,
+    ensure_high_quality_allowed,
+    get_free_draw_count,
+)
 from .choicer import Choicer
 from .data import SHOUJO_CONFIG
 
 __plugin_meta__ = PluginMetadata(
     name="今天我是什么少女",
     description="随机生成今日少女设定",
-    usage="今天我是什么少女 / 查看今日人设图 / 今天你是什么少女 @某人",
+    usage="今天我是什么少女 / 查看今日人设图 / 查看今日人设图high / 今天你是什么少女 @某人",
 )
 
 
 IMAGE_CMD_TEXT = "查看今日人设图"
+IMAGE_HIGH_CMD_TEXT = f"{IMAGE_CMD_TEXT}high"
 IMAGE_PROMPT_NAME = ""
 
 OTHER_TRIGGERS = (
@@ -58,6 +64,7 @@ _image_breastsize_re = re.compile(
 
 my_shaojo_cmd = on_fullmatch("今天我是什么少女", priority=5, block=True)
 my_shaojo_image_cmd = on_fullmatch(IMAGE_CMD_TEXT, priority=5, block=True)
+my_shaojo_image_high_cmd = on_fullmatch(IMAGE_HIGH_CMD_TEXT, priority=5, block=True)
 
 
 async def _is_other_shaojo(event: Event) -> bool:
@@ -190,8 +197,30 @@ async def handle_my_shaojo_image(
     event: Event,
     uid: int = Depends(get_uid),
 ) -> None:
-    await ensure_draw_available(event, uid, my_shaojo_image_cmd)
+    await handle_shaojo_image_command(event, uid, my_shaojo_image_cmd)
 
+
+@my_shaojo_image_high_cmd.handle()
+async def handle_my_shaojo_image_high(
+    event: Event,
+    uid: int = Depends(get_uid),
+) -> None:
+    await ensure_high_quality_allowed(uid, my_shaojo_image_high_cmd)
+    await handle_shaojo_image_command(
+        event,
+        uid,
+        my_shaojo_image_high_cmd,
+        quality=koinori_config.aidraw_high_quality,
+    )
+
+
+async def handle_shaojo_image_command(
+    event: Event,
+    uid: int,
+    cmd,
+    quality: str | None = None,
+) -> None:
+    await ensure_draw_available(event, uid, cmd)
     name = await _sender_name(event, uid)
     display_profile = _format_profile(uid, name)
     prompt_profile = _format_image_prompt_profile(uid)
@@ -200,10 +229,11 @@ async def handle_my_shaojo_image(
         event,
         uid,
         prompt,
-        cmd=my_shaojo_image_cmd,
+        cmd=cmd,
         progress_text=f"今日人设图生成中…\n已扣除{koinori_config.draw_cost}金币",
         success_text=f"人设：\n{display_profile}",
         size=koinori_config.shaojo_image_size,
+        quality=quality,
     )
 
 

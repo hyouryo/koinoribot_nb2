@@ -1086,7 +1086,7 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     result_message += f"\n您获得了：{prize_description}"
     result_message += f"\n额外奖励：钓鱼次数+{fish_count}"
     if unlimited_turntable:
-        result_message += "\n0级SU不受每日转盘次数限制。"
+        result_message += "\n剩余次数：无限制。"
     else:
         result_message += f"\n您今天还剩下 {remaining_turns} 次机会。"
     
