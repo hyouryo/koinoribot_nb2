@@ -1063,8 +1063,9 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     
     # 检查每日次数
     
-    can_spin, remaining = await check_turntable_limit(uid)
-    if not can_spin and not is_su(uid):
+    unlimited_turntable = is_su_contributor(uid)
+    can_spin = (await check_turntable_limit(uid))[0]
+    if not can_spin and not unlimited_turntable:
         await turntable_cmd.finish(f"您今天的 {MAX_TURNS_PER_DAY} 次机会已经用完啦，明天再来吧！", at_sender=True)
     
     # 检查幸运币
@@ -1073,7 +1074,8 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
         await turntable_cmd.finish("您的幸运币不足，无法启动转盘哦。", at_sender=True)
     
     money.luckygold -= 1
-    remaining_turns = await record_turntable_spin(uid)
+    if not unlimited_turntable:
+        remaining_turns = await record_turntable_spin(uid)
     
     # 抽取奖品
     prize_tier = draw_prize()
@@ -1083,7 +1085,10 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     result_message = f"指针停在了【{prize_tier}】区域！"
     result_message += f"\n您获得了：{prize_description}"
     result_message += f"\n额外奖励：钓鱼次数+{fish_count}"
-    result_message += f"\n您今天还剩下 {remaining_turns} 次机会。"
+    if unlimited_turntable:
+        result_message += "\n0级SU不受每日转盘次数限制。"
+    else:
+        result_message += f"\n您今天还剩下 {remaining_turns} 次机会。"
     
     await turntable_cmd.finish(result_message, at_sender=True)
 
