@@ -52,6 +52,9 @@ driver = get_driver()
 # 频率限制：每用户 30 秒一次
 draw_limiter = FreqLimiter(30)
 
+# 正在画图中的用户集合，用于防止同一用户并发画图
+_drawing_uids: set[int] = set()
+
 # 注册命令
 draw_cmd = on_command(
     "冰祈画图",
@@ -331,6 +334,7 @@ async def translate_prompt(api_key: str, user_text: str) -> str:
 
 # ═══════════════ GPT-Image-2 ═══════════════
 
+# AI画图超时时间：10分钟（600秒）
 IMAGE_API_TIMEOUT = aiohttp.ClientTimeout(total=600, connect=30, sock_read=600)
 
 
@@ -606,6 +610,9 @@ async def do_draw(
         await cmd.finish(f"画图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
     draw_limiter.start_cd(uid)
 
+    if uid in _drawing_uids:
+        await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~", at_sender=True)
+
     payment = pay_draw_cost(uid)
     if not payment:
         await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
@@ -619,6 +626,7 @@ async def do_draw(
         )
     )
 
+    _drawing_uids.add(uid)
     try:
         image_bytes = await generate_image(
             koinori_config.gpt_image_api_key,
@@ -638,14 +646,18 @@ async def do_draw(
     else:
         await record_draw_success(uid)
         try:
+            base_text = success_text or f"提示词：\n{user_text}"
+            size_quality_info = f"\n预期尺寸：{draw_size} | 质量：{draw_quality}"
             result_msg = _build_text_image_message(
-                success_text or f"提示词：\n{user_text}",
+                base_text + size_quality_info,
                 image_msg,
             )
             await cmd.send(result_msg, at_sender=True)
         except ActionFailed:
             logger.warning("发送图片超时，但图片可能已送达")
         await cmd.finish()
+    finally:
+        _drawing_uids.discard(uid)
 
 
 async def do_edit(
@@ -685,19 +697,25 @@ async def do_edit(
         await cmd.finish(f"修图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
     draw_limiter.start_cd(uid)
 
+    if uid in _drawing_uids:
+        await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~", at_sender=True)
+
     prompt = user_text.strip()
     payment = pay_draw_cost(uid, allow_free_draw=False)
     if not payment:
         await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
 
+    edit_size = koinori_config.ai_draw_size
     user_gold_after = money.of(uid).gold
     await cmd.send(f"少女修图中…\n已扣除 {koinori_config.draw_cost} 金币 (剩余 {user_gold_after})")
 
+    _drawing_uids.add(uid)
     try:
         image_bytes = await generate_image_edit(
             koinori_config.gpt_image_api_key,
             prompt,
             ref_image,
+            size=edit_size,
             quality=edit_quality,
         )
         image_msg = build_image_msg(event, image_bytes)
@@ -713,13 +731,15 @@ async def do_edit(
         await record_draw_success(uid)
         try:
             result_msg = _build_text_image_message(
-                f"提示词：\n{prompt}",
+                f"提示词：\n{prompt}\n预期尺寸：{edit_size} | 质量：{edit_quality}",
                 image_msg,
             )
             await cmd.send(result_msg, at_sender=True)
         except ActionFailed:
             logger.warning("修图发送图片超时，但图片可能已送达")
         await cmd.finish()
+    finally:
+        _drawing_uids.discard(uid)
 
 
 # ═══════════════ 命令入口 ═══════════════
