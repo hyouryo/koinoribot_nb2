@@ -253,11 +253,11 @@ async def handle_thousand_fish(
 
 
 # ----- 万连钓鱼 -----
-thousand_fish_cmd = on_command("万连钓鱼", priority=5, block=True)
+ten_thousand_fish_cmd = on_command("万连钓鱼", priority=5, block=True)
 
 
-@thousand_fish_cmd.handle()
-async def handle_thousand_fish(
+@ten_thousand_fish_cmd.handle()
+async def handle_ten_thousand_fish(
     matcher: Matcher,
     bot: Bot,
     event: Event,
@@ -277,18 +277,18 @@ async def handle_thousand_fish(
 
 
 # ----- 十万连钓鱼 -----
-thousand_fish_cmd = on_command("十万连钓鱼", priority=5, block=True)
+hundred_thousand_fish_cmd = on_command("十万连钓鱼", priority=5, block=True)
 
 
-@thousand_fish_cmd.handle()
-async def handle_thousand_fish(
+@hundred_thousand_fish_cmd.handle()
+async def handle_hundred_thousand_fish(
     matcher: Matcher,
     bot: Bot,
     event: Event,
     uid: int = Depends(get_uid),
     ) -> None:
     if not is_su(uid):
-        await thousand_fish_cmd.finish("权限不足", at_sender=True)  
+        await hundred_thousand_fish_cmd.finish("权限不足", at_sender=True)  
     await FishingManager.multi_fishing(
         uid,
         matcher,
